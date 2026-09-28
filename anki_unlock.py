@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
@@ -54,7 +55,9 @@ def slug(s: str) -> str:
 
 def normalize_key(field1: str) -> list[str]:
     """Keys a vocab transliteration field can be referenced by in req:: tags."""
-    raw = field1.strip().lower()
+    # AnkiConnect may return HTML entities (&gt; for > in "goftan > gu(y)")
+    raw = html.unescape(field1).strip().lower()
+    raw = re.sub(r"<[^>]+>", "", raw)
     # Expand optional letters: sob(h) → sob / sobh, ye(k) → ye / yek, aa(y) → aa / aay
     variants = {raw}
     for match in re.finditer(r"\(([^)]+)\)", raw):
@@ -85,7 +88,10 @@ def parse_req_tags(tags: list[str]) -> list[str]:
 
 
 def field_map(note: dict) -> dict[str, str]:
-    return {k: v.get("value", "") for k, v in note["fields"].items()}
+    return {
+        k: html.unescape(v.get("value", "") or "")
+        for k, v in note["fields"].items()
+    }
 
 
 def fetch_notes(query: str) -> list[dict]:
@@ -101,14 +107,14 @@ def fetch_cards_by_id(card_ids: list[int]) -> dict[int, dict]:
     return cards_by_id
 
 
-def template_gate_field(model: str, name: str, html: str) -> str | None:
+def template_gate_field(model: str, name: str, html_sides: str) -> str | None:
     lowered = name.lower()
     if model == VOCAB_MODEL:
-        if SCRIPT_FIELD in html or "script" in lowered:
+        if SCRIPT_FIELD in html_sides or "script" in lowered:
             return SCRIPT_FIELD
         return None
     if model == SENTENCE_MODEL:
-        if SENTENCE_SCRIPT_FIELD in html or "script" in lowered:
+        if SENTENCE_SCRIPT_FIELD in html_sides or "script" in lowered:
             return SENTENCE_SCRIPT_FIELD
         return SENTENCE_FIELD
     return None
@@ -154,7 +160,7 @@ def apply_visibility(
             unlocked = fmap.get(field, "") == "1" or field in just_on
             suspended = card.get("queue") == -1
             if unlocked:
-                if field in just_on and suspended:
+                if suspended:
                     to_unsuspend.append(cid)
             elif not suspended:
                 to_suspend.append(cid)
@@ -311,6 +317,7 @@ def unlock(mature_days: int = MATURE_INTERVAL_DEFAULT) -> None:
                     },
                 }
             )
+            newly_on.setdefault(info["noteId"], set()).add(SCRIPT_FIELD)
             script_on += 1
 
     print(f"ScriptUnlocked newly set: {script_on}")
@@ -381,15 +388,11 @@ def unlock(mature_days: int = MATURE_INTERVAL_DEFAULT) -> None:
     cards_by_id = fetch_cards_by_id(all_card_ids)
     suspended = unsuspended = 0
     if vocab_raw and VOCAB_MODEL in gates:
-        s, u = apply_visibility(
-            vocab_raw, cards_by_id, gates[VOCAB_MODEL], newly_on
-        )
+        s, u = apply_visibility(vocab_raw, cards_by_id, gates[VOCAB_MODEL], newly_on)
         suspended += s
         unsuspended += u
     if sentences and SENTENCE_MODEL in gates:
-        s, u = apply_visibility(
-            sentences, cards_by_id, gates[SENTENCE_MODEL], newly_on
-        )
+        s, u = apply_visibility(sentences, cards_by_id, gates[SENTENCE_MODEL], newly_on)
         suspended += s
         unsuspended += u
     print(f"Visibility: suspended={suspended}; unsuspended={unsuspended}")
