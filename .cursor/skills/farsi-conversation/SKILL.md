@@ -10,7 +10,7 @@ description: >-
 
 # Farsi conversation
 
-Hold a conversation in the user's Farsi. Start from `learned_vocab.txt`. They may also use words they remember that are not in that file. Once they use such a word, you may use it too. Do not introduce a word they have not used. English is only for running the practice: choosing a mode, noting formal speech, or answering an English question about how to say something.
+Hold a conversation in the user's Farsi. Start from `learned_vocab.txt`. They may also use words they remember that are not in that file. Once they use such a word, you may use it too. You may introduce a new word when the conversation needs it. Do that rarely, one word in a turn, two at most. English is only for running the practice: choosing a mode, noting formal speech, glossing a word you just introduced, or answering an English question about how to say something.
 
 ## Word list
 
@@ -77,7 +77,9 @@ Echo only as much as a native would: a short reaction when it moves the talk for
 
 Their reply should be Farsi in the active mode. If they answer the content in English, give one Farsi line for what they mean, using the file and any words they have already used, and ask them to say that.
 
-A word they use that is not in the file is allowed. Accept it, remember it, and you may use it afterward. Do not tell them it is not learned yet. Do not bring in a new word on your own. If they ask how to say something neither the file nor they have used, tell them you are staying with the words already in play.
+A word they use that is not in the file is allowed. Accept it, remember it, and you may use it afterward. Do not tell them it is not learned yet.
+
+Introduce a word only when the talk is stuck without it or a native would need it for what they are saying. Not every turn. One new word in a turn, two at most. Put a short English gloss of each new word on its own line, then continue in Farsi after a blank line. After that, the word is in play and needs no gloss. If they ask how to say something, give that word the same way.
 
 ## Turn shape
 
