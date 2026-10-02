@@ -4,6 +4,10 @@
 Also writes learned_vocab.txt for conversation practice: every vocab note whose
 FA↔EN cards are no longer New, marked mature when both intervals have reached
 the script bar.
+
+Suspends a card whose front would be blank. When every template on a note is
+locked, Anki still keeps one card and shows a blank front; that card is
+suspended too.
 """
 
 from __future__ import annotations
@@ -114,6 +118,81 @@ def fetch_cards_by_id(card_ids: list[int]) -> dict[int, dict]:
     return cards_by_id
 
 
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def _field_nonempty(fields: dict[str, str], name: str) -> bool:
+    value = re.sub(r"<[^>]+>", "", fields.get(name, "") or "")
+    return bool(value.replace("\xa0", " ").strip())
+
+
+def _take_conditional(text: str, i: int, name: str) -> tuple[str, int]:
+    depth = 1
+    start = i
+    while i < len(text):
+        open_br = text.find("{{", i)
+        if open_br < 0:
+            return text[start:], len(text)
+        end_br = text.find("}}", open_br)
+        if end_br < 0:
+            return text[start:], len(text)
+        token = text[open_br + 2 : end_br].strip()
+        token_name = token[1:].strip() if token[:1] in "#^/" else ""
+        if (token.startswith("#") or token.startswith("^")) and token_name == name:
+            depth += 1
+        elif token.startswith("/") and token_name == name:
+            depth -= 1
+            if depth == 0:
+                return text[start:open_br], end_br + 2
+        i = end_br + 2
+    return text[start:], len(text)
+
+
+def _expand(text: str, fields: dict[str, str]) -> str:
+    text = _COMMENT_RE.sub("", text)
+    parts: list[str] = []
+    i = 0
+    while i < len(text):
+        start = text.find("{{", i)
+        if start < 0:
+            parts.append(text[i:])
+            break
+        parts.append(text[i:start])
+        end = text.find("}}", start)
+        if end < 0:
+            parts.append(text[start:])
+            break
+        token = text[start + 2 : end].strip()
+        i = end + 2
+        if token.startswith("#") or token.startswith("^"):
+            name = token[1:].strip()
+            inner, i = _take_conditional(text, i, name)
+            show = _field_nonempty(fields, name)
+            if token.startswith("^"):
+                show = not show
+            if show:
+                parts.append(_expand(inner, fields))
+        elif token.startswith("/") or token.startswith("!"):
+            continue
+        else:
+            name = token.split(":", 1)[-1].strip() if ":" in token else token
+            parts.append(fields.get(name, "") or "")
+    return "".join(parts)
+
+
+def front_text(front: str, fields: dict[str, str]) -> str:
+    """Visible text a template front would show for these field values."""
+    text = _expand(front, fields)
+    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def showing_ords(fronts: list[str], fields: dict[str, str]) -> set[int]:
+    return {i for i, front in enumerate(fronts) if front_text(front, fields)}
+
+
 def template_gate_field(model: str, name: str, html_sides: str) -> str | None:
     lowered = name.lower()
     if model == VOCAB_MODEL:
@@ -127,47 +206,73 @@ def template_gate_field(model: str, name: str, html_sides: str) -> str | None:
     return None
 
 
-def load_ord_gates(models: list[str]) -> dict[str, dict[int, str]]:
-    """Read-only map of card ordinal -> unlock field, from current templates."""
-    gates: dict[str, dict[int, str]] = {}
+def load_template_info(
+    models: list[str],
+) -> dict[str, tuple[dict[int, str], list[str]]]:
+    """Per model: card ordinal -> unlock field, and front templates in ord order."""
+    info: dict[str, tuple[dict[int, str], list[str]]] = {}
     for model in (VOCAB_MODEL, SENTENCE_MODEL):
         if model not in models:
             continue
         templates = invoke("modelTemplates", modelName=model) or {}
         ord_gates: dict[int, str] = {}
+        fronts: list[str] = []
         for ord_, (name, sides) in enumerate(templates.items()):
-            field = template_gate_field(
-                model, name, sides.get("Front", "") + sides.get("Back", "")
-            )
+            front = sides.get("Front", "") or ""
+            field = template_gate_field(model, name, front + (sides.get("Back", "") or ""))
             if field:
                 ord_gates[ord_] = field
-        gates[model] = ord_gates
-    return gates
+            fronts.append(front)
+        info[model] = (ord_gates, fronts)
+    return info
 
 
 def apply_visibility(
     notes: list[dict],
     cards_by_id: dict[int, dict],
     ord_gates: dict[int, str],
+    fronts: list[str],
     newly_on: dict[int, set[str]],
-) -> tuple[int, int]:
+    *,
+    unsuspend: bool = True,
+) -> tuple[int, int, int]:
+    """Suspend blank fronts. Return (suspended, unsuspended, fully locked notes).
+
+    A locked template is suspended on its own. When no template would show
+    text, Anki still keeps one card with a blank front — suspend every card
+    on that note.
+    """
     to_suspend: list[int] = []
     to_unsuspend: list[int] = []
+    fully_locked = 0
     for note in notes:
         nid = note["noteId"]
         fmap = field_map(note)
         just_on = newly_on.get(nid, set())
-        for cid in note.get("cards") or []:
-            card = cards_by_id.get(cid)
-            if not card:
+        render_fields = dict(fmap)
+        for field in just_on:
+            render_fields[field] = "1"
+        showing = showing_ords(fronts, render_fields) if fronts else set()
+        note_cards = [
+            cid for cid in (note.get("cards") or []) if cid in cards_by_id
+        ]
+        if fronts and not showing and note_cards:
+            fully_locked += 1
+        for cid in note_cards:
+            card = cards_by_id[cid]
+            ord_ = card.get("ord", 0)
+            suspended = card.get("queue") == -1
+            blank = bool(fronts) and ord_ not in showing
+            if blank:
+                if not suspended:
+                    to_suspend.append(cid)
                 continue
-            field = ord_gates.get(card.get("ord", 0))
+            field = ord_gates.get(ord_)
             if not field:
                 continue
             unlocked = fmap.get(field, "") == "1" or field in just_on
-            suspended = card.get("queue") == -1
             if unlocked:
-                if suspended:
+                if unsuspend and suspended:
                     to_unsuspend.append(cid)
             elif not suspended:
                 to_suspend.append(cid)
@@ -185,7 +290,46 @@ def apply_visibility(
             }
         )
     invoke_multi(actions)
-    return len(to_suspend), len(to_unsuspend)
+    return len(to_suspend), len(to_unsuspend), fully_locked
+
+
+def sync_card_visibility(
+    models: list[str],
+    newly_on: dict[int, set[str]],
+    *,
+    unsuspend: bool = True,
+) -> None:
+    templates = load_template_info(models)
+    vocab_raw = fetch_notes(f'deck:"{VOCAB_DECK}" note:"{VOCAB_MODEL}"')
+    sentences: list[dict] = []
+    if SENTENCE_MODEL in models:
+        sentences = fetch_notes(f'note:"{SENTENCE_MODEL}"')
+    all_card_ids = [
+        cid
+        for note in vocab_raw + sentences
+        for cid in (note.get("cards") or [])
+    ]
+    cards_by_id = fetch_cards_by_id(all_card_ids)
+    suspended = unsuspended = fully_locked = 0
+    for model, notes in ((VOCAB_MODEL, vocab_raw), (SENTENCE_MODEL, sentences)):
+        if not notes or model not in templates:
+            continue
+        gates, fronts = templates[model]
+        suspended_n, unsuspended_n, locked_n = apply_visibility(
+            notes,
+            cards_by_id,
+            gates,
+            fronts,
+            newly_on,
+            unsuspend=unsuspend,
+        )
+        suspended += suspended_n
+        unsuspended += unsuspended_n
+        fully_locked += locked_n
+    print(
+        f"Visibility: suspended={suspended}; unsuspended={unsuspended}; "
+        f"fully locked notes={fully_locked}"
+    )
 
 
 def ensure_field(model: str, field: str, existing: list[str] | None = None) -> list[str]:
@@ -376,9 +520,14 @@ def eval_reqs(reqs: list[str], index: dict[str, dict]) -> tuple[bool, bool, list
 def unlock(
     mature_days: int = MATURE_INTERVAL_DEFAULT,
     vocab_out: str | Path | None = None,
+    suspend_only: bool = False,
 ) -> None:
+    if suspend_only:
+        sync_card_visibility(invoke("modelNames"), {}, unsuspend=False)
+        print("Done.")
+        return
+
     models = ensure_unlock_fields()
-    gates = load_ord_gates(models)
     index, vocab_notes = build_vocab_index(mature_days)
     print(f"Indexed {len(index)} vocab keys ({len(vocab_notes)} notes) from {VOCAB_DECK!r}")
 
@@ -458,25 +607,7 @@ def unlock(
             for persian, miss in missing_report:
                 print(f"  {persian!r} → missing {miss}")
 
-    vocab_raw = fetch_notes(f'deck:"{VOCAB_DECK}" note:"{VOCAB_MODEL}"')
-    if SENTENCE_MODEL in models:
-        sentences = fetch_notes(f'note:"{SENTENCE_MODEL}"')
-    all_card_ids = [
-        cid
-        for note in vocab_raw + sentences
-        for cid in (note.get("cards") or [])
-    ]
-    cards_by_id = fetch_cards_by_id(all_card_ids)
-    suspended = unsuspended = 0
-    if vocab_raw and VOCAB_MODEL in gates:
-        s, u = apply_visibility(vocab_raw, cards_by_id, gates[VOCAB_MODEL], newly_on)
-        suspended += s
-        unsuspended += u
-    if sentences and SENTENCE_MODEL in gates:
-        s, u = apply_visibility(sentences, cards_by_id, gates[SENTENCE_MODEL], newly_on)
-        suspended += s
-        unsuspended += u
-    print(f"Visibility: suspended={suspended}; unsuspended={unsuspended}")
+    sync_card_visibility(models, newly_on)
 
     out = Path(vocab_out) if vocab_out else VOCAB_OUT
     ready_n, mature_n = write_learned_vocab(vocab_notes, out, mature_days)
@@ -489,12 +620,21 @@ def main():
     parser = argparse.ArgumentParser(description="Farsi Anki unlock via AnkiConnect")
     parser.add_argument("--mature-days", type=int, default=MATURE_INTERVAL_DEFAULT)
     parser.add_argument(
+        "--suspend-locked",
+        action="store_true",
+        help="Suspend blank and fully locked cards without changing unlock fields",
+    )
+    parser.add_argument(
         "--vocab-out",
         default=str(VOCAB_OUT),
         help="Learned-vocab dump for conversation practice",
     )
     args = parser.parse_args()
-    unlock(mature_days=args.mature_days, vocab_out=args.vocab_out)
+    unlock(
+        mature_days=args.mature_days,
+        vocab_out=args.vocab_out,
+        suspend_only=args.suspend_locked,
+    )
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ What it does:
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
 | Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1` |
 | Conversation word list | Both FA↔EN cards are **not New** | `learned_vocab.txt` (`mature` when interval ≥ 21) |
+| Blank front | No template would show text, or this card's front would not | Suspend that card. A fully locked note's only card is suspended too |
 
 Same maturity bar for vocab script and sentence script. Unlock fields sync; run on desktop, then sync.
 

@@ -40,16 +40,16 @@ def lint(path: Path) -> list[str]:
     header, rows = split_rows(text)
     errors: list[str] = []
     joined = "\n".join(header)
-    for needle in ("#separator:tab", "#html:true", "#guid column:1", "#tags column:8"):
+    for needle in ("#separator:tab", "#html:true", "#guid column:1", "#tags column:10"):
         if needle not in joined:
             errors.append(f"header missing {needle}")
 
     seen_guid: dict[str, int] = {}
     for lineno, fields in rows:
-        if len(fields) != 8:
-            errors.append(f"L{lineno}: {len(fields)} fields, want 8")
+        if len(fields) != 10:
+            errors.append(f"L{lineno}: {len(fields)} fields, want 10")
             continue
-        guid, model, deck, tr, _en, script, unlocked, tags = fields
+        guid, model, deck, tr, _en, script, example, blank, unlocked, tags = fields
         where = f"L{lineno}"
         if not guid:
             errors.append(f"{where}: guid empty")
@@ -57,7 +57,7 @@ def lint(path: Path) -> list[str]:
             errors.append(f"{where}: duplicate guid also on L{seen_guid[guid]}")
         else:
             seen_guid[guid] = lineno
-        if model != "Farsi" or deck != "Farsi":
+        if model != "Farsi" or not deck.strip():
             errors.append(f"{where}: notetype/deck is {model!r}/{deck!r}")
         if tr != tr.strip() or script != script.strip():
             errors.append(f"{where}: leading or trailing space")
@@ -71,6 +71,20 @@ def lint(path: Path) -> list[str]:
             errors.append(f"{where}: script missing Persian letters")
         if unlocked not in ("", "1"):
             errors.append(f"{where}: ScriptUnlocked is {unlocked!r}")
+        if example != example.strip() or blank != blank.strip():
+            errors.append(f"{where}: leading or trailing space in example")
+        if not any("\u0600" <= ch <= "\u06ff" for ch in example):
+            errors.append(f"{where}: example sentence missing Persian letters")
+        if "____" not in blank:
+            errors.append(f"{where}: example blank missing ____")
+        else:
+            rest = blank.replace("____", "")
+            if any(ch.isascii() and ch.isalpha() for ch in rest):
+                errors.append(f"{where}: example blank is not in Persian script")
+            elif rest.strip(" \t.!?؟،؛:\"'()[]") and not any(
+                "\u0600" <= ch <= "\u06ff" for ch in rest
+            ):
+                errors.append(f"{where}: example blank is not in Persian script")
         if not tags.strip():
             errors.append(f"{where}: tags empty")
     return errors

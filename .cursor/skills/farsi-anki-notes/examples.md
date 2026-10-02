@@ -80,6 +80,19 @@ shodan &gt; shav ~ sho / شدن &gt; شو
 
 Do not write `رو ~ رو`.
 
+## Example on the vocab note
+
+One spoken line on the note itself. `____` replaces this note's word. Other words can sit outside `learned_vocab.txt`.
+
+`khuneh` / خانه:
+
+```text
+Example: فردا می‌رم خونه.
+Example Blank: فردا می‌رم ____.
+```
+
+`raftan` in that same line would blank the verb instead: `فردا ____ خونه.`
+
 ## Sentence for a new word
 
 `otaagh` is not something you say alone. Put it in a line you would actually text, using other deck words. Spoken `ro`, `un`, `mishe`. First letter capitalized. Unlock fields empty.
