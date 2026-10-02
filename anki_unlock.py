@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Unlock Farsi script cards + sentence cards via AnkiConnect."""
+"""Unlock Farsi script cards + sentence cards via AnkiConnect.
+
+Also writes learned_vocab.txt for conversation practice: every vocab note whose
+FA↔EN cards are no longer New, marked mature when both intervals have reached
+the script bar.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 ANKI_URL = "http://127.0.0.1:8765"
 VOCAB_MODEL = "Farsi"
@@ -22,6 +28,7 @@ SENTENCE_SCRIPT_FIELD = "SentenceScriptUnlocked"
 MATURE_INTERVAL_DEFAULT = 21
 MISSING_REPORT_LIMIT = 8
 SLUG_RE = re.compile(r"[^a-z0-9*\-]+")
+VOCAB_OUT = Path(__file__).resolve().parent / "learned_vocab.txt"
 
 
 def invoke(action: str, **params):
@@ -250,6 +257,7 @@ def build_vocab_index(mature_days: int) -> tuple[dict[str, dict], list[dict]]:
             "mature": len(main_cards) >= 2
             and all(c.get("interval", 0) >= mature_days for c in main_cards),
             "fields": fmap,
+            "tags": note.get("tags") or [],
         }
         unique[nid] = info
         for k in keys:
@@ -258,6 +266,76 @@ def build_vocab_index(mature_days: int) -> tuple[dict[str, dict], list[dict]]:
                 index[k] = info
 
     return index, list(unique.values())
+
+
+def plain_field(value: str) -> str:
+    text = value.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = (
+        text.replace("&nbsp;", " ")
+        .replace("&gt;", ">")
+        .replace("&lt;", "<")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+    )
+    return re.sub(r" {2,}", " ", text.replace("\t", " ").replace("\n", " ")).strip()
+
+
+def learned_row(info: dict) -> tuple[str, str, str, str, str] | None:
+    """One dump row when both FA-EN cards have been studied."""
+    if not info.get("ready"):
+        return None
+    fmap = info["fields"]
+    trans_name = persian_field_name(fmap)
+    translit = plain_field(fmap.get(trans_name, ""))
+    if not translit:
+        return None
+    english = ""
+    for name in ("English", "Meaning", "Gloss"):
+        if name in fmap and name != trans_name:
+            english = plain_field(fmap[name])
+            break
+    script = ""
+    for name in ("Farsi", "Farsi Script", "Persian"):
+        if name in fmap and name != trans_name:
+            script = plain_field(fmap[name])
+            break
+    tags = " ".join(t.strip() for t in info.get("tags") or [] if t.strip())
+    level = "mature" if info.get("mature") else "learned"
+    return level, translit, english, script, tags.replace("\t", " ")
+
+
+def render_learned_vocab(vocab_notes: list[dict], mature_days: int) -> str:
+    rows = [row for info in vocab_notes if (row := learned_row(info))]
+    rows.sort(key=lambda row: (row[1].casefold(), row[2].casefold(), row[3]))
+    ready = len(rows)
+    mature = sum(1 for row in rows if row[0] == "mature")
+    header = (
+        "# learned_vocab\n"
+        "# source: anki_unlock.py\n"
+        f"# mature_days: {mature_days}\n"
+        f"# ready: {ready}\n"
+        f"# mature: {mature}\n"
+        "# columns: level, transliteration, english, script, tags\n"
+        "# level mature: both FA-EN cards interval >= mature_days; script unlocked\n"
+        "# level learned: both FA-EN cards are not new; script still locked\n"
+        "# ~ separates formal and spoken; > separates infinitive and present stem\n"
+    )
+    body = "".join("\t".join(row) + "\n" for row in rows)
+    return header + body
+
+
+def write_learned_vocab(
+    vocab_notes: list[dict], path: Path, mature_days: int
+) -> tuple[int, int]:
+    text = render_learned_vocab(vocab_notes, mature_days)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+    ready = sum(1 for line in text.splitlines() if line and not line.startswith("#"))
+    mature = sum(1 for line in text.splitlines() if line.startswith("mature\t"))
+    return ready, mature
 
 
 def flush_updates(updates: list[dict]) -> None:
@@ -295,7 +373,10 @@ def eval_reqs(reqs: list[str], index: dict[str, dict]) -> tuple[bool, bool, list
     return ready_ok, mature_ok, missing
 
 
-def unlock(mature_days: int = MATURE_INTERVAL_DEFAULT) -> None:
+def unlock(
+    mature_days: int = MATURE_INTERVAL_DEFAULT,
+    vocab_out: str | Path | None = None,
+) -> None:
     models = ensure_unlock_fields()
     gates = load_ord_gates(models)
     index, vocab_notes = build_vocab_index(mature_days)
@@ -397,14 +478,23 @@ def unlock(mature_days: int = MATURE_INTERVAL_DEFAULT) -> None:
         unsuspended += u
     print(f"Visibility: suspended={suspended}; unsuspended={unsuspended}")
 
+    out = Path(vocab_out) if vocab_out else VOCAB_OUT
+    ready_n, mature_n = write_learned_vocab(vocab_notes, out, mature_days)
+    print(f"Learned vocab: {ready_n} ready ({mature_n} mature) -> {out}")
+
     print("Done. Sync Anki when ready so mobile/web get unlock fields.")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Farsi Anki unlock via AnkiConnect")
     parser.add_argument("--mature-days", type=int, default=MATURE_INTERVAL_DEFAULT)
+    parser.add_argument(
+        "--vocab-out",
+        default=str(VOCAB_OUT),
+        help="Learned-vocab dump for conversation practice",
+    )
     args = parser.parse_args()
-    unlock(mature_days=args.mature_days)
+    unlock(mature_days=args.mature_days, vocab_out=args.vocab_out)
 
 
 if __name__ == "__main__":
