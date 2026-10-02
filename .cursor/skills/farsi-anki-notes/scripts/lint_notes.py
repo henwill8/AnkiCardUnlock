@@ -81,7 +81,7 @@ def lint(path: Path) -> list[str]:
             rest = blank.replace("____", "")
             if any(ch.isascii() and ch.isalpha() for ch in rest):
                 errors.append(f"{where}: example blank is not in Persian script")
-            elif rest.strip(" \t.!?؟،؛:\"'()[]") and not any(
+            elif rest.strip(" \t.!?؟،؛:\"'()[]\u200f") and not any(
                 "\u0600" <= ch <= "\u06ff" for ch in rest
             ):
                 errors.append(f"{where}: example blank is not in Persian script")

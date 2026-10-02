@@ -66,7 +66,7 @@ Ten tab-separated fields. Anki maps columns 4–9 onto the note type in this ord
 | 5 | English | Short gloss. Keep wording that is already right. |
 | 6 | Farsi Script | Normal Persian spelling, no vowel marks. |
 | 7 | Example | Spoken sentence in Persian script. See [Example sentence](#example-sentence). |
-| 8 | Example Blank | That same sentence in Persian script, with this note's word replaced by `____`. |
+| 8 | Example Blank | That same sentence in Persian script, with this note's word replaced by `____` and a right-to-left mark (U+200F) on each side of the underlines. |
 | 9 | ScriptUnlocked | `1` or empty. Never set or clear this. |
 | 10 | tags | Space-separated. Every note needs at least one. |
 
@@ -144,7 +144,7 @@ One short line people actually say. Colloquial Tehrani: `mishe`, `aare`, `digeh`
 
 Example is that line in normal spelling, including `می‌` with ZWNJ. Questions use `؟`.
 
-Example Blank is that same line in Persian script. Replace the form of this note that appears in the line with `____`. One blank. Keep the rest of the line a sentence. If this note is a prefix or suffix written onto another word, replace that whole word. `خونه` in `فردا می‌رم خونه.` becomes `فردا می‌رم ____.` A verb shows up conjugated: `می‌رم` in that line becomes `فردا ____ خونه.`
+Example Blank is that same line in Persian script. Replace the form of this note that appears in the line with `____`, and put a right-to-left mark (U+200F) on each side of those underlines. One blank. The marks keep the underlines in the word's place. If this note is a prefix or suffix written onto another word, replace that whole word. `خونه` in `فردا می‌رم خونه.` becomes `فردا می‌رم ‏____‏.` A verb shows up conjugated: `می‌رم` in that line becomes `فردا ‏____‏ خونه.`
 
 ## Sentences
 
