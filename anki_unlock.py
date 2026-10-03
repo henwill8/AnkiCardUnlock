@@ -7,7 +7,8 @@ the script bar. Rows are ordered newest or most recently failed first.
 
 Suspends a card whose front would be blank. When every template on a note is
 locked, Anki still keeps one card and shows a blank front; that card is
-suspended too.
+suspended too. Script unlock is cleared when a word drops below the mature
+interval, and that card is suspended until it is mature again.
 """
 
 from __future__ import annotations
@@ -241,6 +242,22 @@ def front_text(front: str, fields: dict[str, str]) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+_STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+_BLANK_FRONT_RE = re.compile(r"the front of this card is blank", re.IGNORECASE)
+
+
+def rendered_front_blank(question: str) -> bool:
+    """True when Anki's rendered question has no card content."""
+    text = _STYLE_RE.sub(" ", question or "")
+    text = _TAG_RE.sub(" ", text)
+    text = html.unescape(text).replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or _BLANK_FRONT_RE.search(text):
+        return True
+    return False
+
+
 def showing_ords(fronts: list[str], fields: dict[str, str]) -> set[int]:
     return {i for i, front in enumerate(fronts) if front_text(front, fields)}
 
@@ -314,15 +331,17 @@ def apply_visibility(
             card = cards_by_id[cid]
             ord_ = card.get("ord", 0)
             suspended = card.get("queue") == -1
-            blank = bool(fronts) and ord_ not in showing
-            if blank:
+            field = ord_gates.get(ord_)
+            just_unlocked = bool(field) and field in just_on
+            template_blank = bool(fronts) and ord_ not in showing
+            live_blank = rendered_front_blank(card.get("question") or "") and not just_unlocked
+            if template_blank or live_blank:
                 if not suspended:
                     to_suspend.append(cid)
                 continue
-            field = ord_gates.get(ord_)
             if not field:
                 continue
-            unlocked = fmap.get(field, "") == "1" or field in just_on
+            unlocked = fmap.get(field, "") == "1" or just_unlocked
             if unlocked:
                 if unsuspend and suspended:
                     to_unsuspend.append(cid)
@@ -617,27 +636,34 @@ def unlock(
 
     updates: list[dict] = []
     newly_on: dict[int, set[str]] = {}
-    script_on = 0
+    script_on = script_off = 0
     for info in vocab_notes:
-        if not info["mature"]:
-            continue
         fmap = info["fields"]
-        if SCRIPT_FIELD in fmap and fmap.get(SCRIPT_FIELD, "") != "1":
-            updates.append(
-                {
-                    "action": "updateNoteFields",
-                    "params": {
-                        "note": {"id": info["noteId"], "fields": {SCRIPT_FIELD: "1"}}
-                    },
-                }
-            )
-            newly_on.setdefault(info["noteId"], set()).add(SCRIPT_FIELD)
+        if SCRIPT_FIELD not in fmap:
+            continue
+        current = fmap.get(SCRIPT_FIELD, "")
+        if info["mature"]:
+            if current == "1":
+                continue
+            value = "1"
             script_on += 1
+            newly_on.setdefault(info["noteId"], set()).add(SCRIPT_FIELD)
+        elif current == "1":
+            value = ""
+            script_off += 1
+        else:
+            continue
+        updates.append(
+            {
+                "action": "updateNoteFields",
+                "params": {"note": {"id": info["noteId"], "fields": {SCRIPT_FIELD: value}}},
+            }
+        )
 
-    print(f"ScriptUnlocked newly set: {script_on}")
+    print(f"ScriptUnlocked newly set: {script_on}; relocked: {script_off}")
 
     sentences: list[dict] = []
-    unlocked = script_unlocked = locked = skipped = 0
+    unlocked = script_unlocked = script_relocked = locked = skipped = 0
     missing_report: list[tuple[str, list[str]]] = []
 
     if SENTENCE_MODEL not in models:
@@ -655,21 +681,20 @@ def unlock(
             if missing and len(missing_report) < MISSING_REPORT_LIMIT:
                 missing_report.append((fmap.get("Farsi Transliteration", "")[:40], missing))
 
+            pending: dict[str, str] = {}
             if not ready_ok:
                 locked += 1
-                continue
-
-            pending: dict[str, str] = {}
-            if SENTENCE_FIELD in fmap and fmap.get(SENTENCE_FIELD, "") != "1":
+            elif SENTENCE_FIELD in fmap and fmap.get(SENTENCE_FIELD, "") != "1":
                 pending[SENTENCE_FIELD] = "1"
                 unlocked += 1
-            if (
-                mature_ok
-                and SENTENCE_SCRIPT_FIELD in fmap
-                and fmap.get(SENTENCE_SCRIPT_FIELD, "") != "1"
-            ):
-                pending[SENTENCE_SCRIPT_FIELD] = "1"
-                script_unlocked += 1
+            if SENTENCE_SCRIPT_FIELD in fmap:
+                current = fmap.get(SENTENCE_SCRIPT_FIELD, "")
+                if mature_ok and current != "1":
+                    pending[SENTENCE_SCRIPT_FIELD] = "1"
+                    script_unlocked += 1
+                elif not mature_ok and current == "1":
+                    pending[SENTENCE_SCRIPT_FIELD] = ""
+                    script_relocked += 1
             if pending:
                 updates.append(
                     {
@@ -677,14 +702,17 @@ def unlock(
                         "params": {"note": {"id": note["noteId"], "fields": pending}},
                     }
                 )
-                newly_on.setdefault(note["noteId"], set()).update(pending)
+                turned_on = {name for name, value in pending.items() if value == "1"}
+                if turned_on:
+                    newly_on.setdefault(note["noteId"], set()).update(turned_on)
 
     flush_updates(updates)
 
     if SENTENCE_MODEL in models:
         print(
             f"Sentences: translit newly unlocked={unlocked}; "
-            f"script newly unlocked={script_unlocked}; still locked={locked}; no req tags={skipped}"
+            f"script newly unlocked={script_unlocked}; script relocked={script_relocked}; "
+            f"still locked={locked}; no req tags={skipped}"
         )
         if missing_report:
             print("Examples with unknown req:: keys (fix tags if needed):")
