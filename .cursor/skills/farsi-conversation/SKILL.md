@@ -18,18 +18,24 @@ Read `learned_vocab.txt` at the project root (next to `anki_unlock.py`) before t
 
 Skip blank lines and lines that start with `#`. Each data row is tab-separated:
 
-`level`, `transliteration`, `english`, `script`, `tags`
+`level`, `transliteration`, `english`, `script`, `tags`, `first`, `again`
 
 - `learned`: both FA↔EN cards have been studied. The script card is still locked.
 - `mature`: both of those cards have interval ≥ the file's `mature_days`. The script card is unlocked.
+- `first`: local date of the earliest review on either FA↔EN card.
+- `again`: local date of the latest Again on either of those cards. Empty when Again has never been pressed.
+
+Rows are ordered newest or hardest first. A row is high when `first` or `again` is recent, whichever day is later.
 
 `~` splits formal and spoken (`khaaneh ~ khuneh`). `>` splits a verb infinitive from its present stem (`raftan > rav ~ ro`). A form in parentheses is optional: `ye(k)` allows `ye` and `yek`. Tags are the deck's part-of-speech tags.
+
+Use every in-play row unless they ask to practice new words, hard words, recent cards, or words they keep missing. Then stay near the top of the file. A recent `first` is a new word. A recent `again` is a hard word. If they ask for only one of those, follow that column. Use a lower row only when the sentence needs it. If the dates at the top are not recent, say so and use the whole file.
 
 ## Mode
 
 Transliteration is the default. Use script when they ask for Persian script, فارسی, or writing in script. Switch back when they ask for transliteration. Stay in the mode until they switch.
 
-On the first reply, name the mode and how many rows are in play, then start.
+On the first reply, name the mode and how many rows are in play, then start. If they asked to focus on new or hard words, name that focus in the same line.
 
 - **Transliteration.** Every `learned` and `mature` row. Write the transliteration column. In your own lines, when `~` is present, use the spoken side. Capitalize the first letter of a sentence only. The Farsi in the turn is only this spelling: no Persian letters in it.
 - **Script.** `mature` rows only, so practice does not reveal spellings Anki still has locked. Write the script column in everyday spelling, with no vowel marks. In your own lines, use the spoken side of `~`. Questions use `؟`. `می‌` keeps the ZWNJ. The Farsi in the turn is only Persian script. If nothing is mature, say so and stay in transliteration.

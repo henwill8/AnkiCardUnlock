@@ -15,12 +15,12 @@ What it does:
 | Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1` |
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
 | Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1` |
-| Conversation word list | Both FA↔EN cards are **not New** | `learned_vocab.txt` (`mature` when interval ≥ 21) |
+| Conversation word list | Both FA↔EN cards are **not New** | `learned_vocab.txt` (`mature` when interval ≥ 21), newest or most recently failed first |
 | Blank front | No template would show text, or this card's front would not | Suspend that card. A fully locked note's only card is suspended too |
 
 Same maturity bar for vocab script and sentence script. Unlock fields sync; run on desktop, then sync.
 
-`learned_vocab.txt` is written next to `anki_unlock.py` on every run (`--vocab-out` changes the path). `learned` rows are words you have studied. `mature` rows are the ones whose script cards are unlocked. The `farsi-conversation` skill reads that file and uses only those words, in transliteration or Persian script.
+`learned_vocab.txt` is written next to `anki_unlock.py` on every run (`--vocab-out` changes the path). `learned` rows are words you have studied. `mature` rows are the ones whose script cards are unlocked. `first` is the day a word was first reviewed. `again` is the day Again was last pressed, or empty. Rows are ordered by whichever of those days is later, so the newest and hardest words are at the top. The `farsi-conversation` skill reads that file and can use the whole list or stay on those top rows.
 
 `req::` tags nest under one sidebar entry. Ignore them while studying.
 

@@ -117,9 +117,9 @@ On each bad note:
 4. Fill tags from the inventory in [reference.md](reference.md). A light-verb compound is `Verb`.
 5. Keep the English gloss. Extend it only when a second form makes the old gloss wrong. First letter capital. Verbs start with `To `. No trailing space.
 6. Write the row with ten fields. Preserve guid, deck, and ScriptUnlocked.
-7. Fill Example and Example Blank when either is empty. Follow [Example sentence](#example-sentence).
+7. Fill Example and Example Blank when either is empty, or when covering the word leaves a blank you cannot guess. Follow [Example sentence](#example-sentence).
 
-Do not delete notes. Do not reorder existing notes. Do not change a gloss that is already accurate. Do not set `ScriptUnlocked`. Leave an example that already uses the current word.
+Do not delete notes. Do not reorder existing notes. Do not change a gloss that is already accurate. Do not set `ScriptUnlocked`. Leave an example that already makes the covered word obvious.
 
 Changing a transliteration changes the slug sentence notes use in `req::` tags (`khooneh` becomes `khuneh`). If you are also writing sentence notes, update those tags. If you are not, still fix the vocab spelling and list the old → new slugs in the summary.
 
@@ -140,11 +140,15 @@ Every vocab note carries one spoken sentence that uses that word. Write it in th
 
 Read `learned_vocab.txt` next to `anki_unlock.py` when that file exists. Prefer words listed there (`learned` and `mature`). You may use words that are not in it, including words that are not in the deck, when the line needs them. Prefer a known word over an unknown one.
 
-One short line people actually say. Colloquial Tehrani: `mishe`, `aare`, `digeh`, `alaan`, `un`, `ro`, `ageh`, `khuneh`, spoken endings. Use the spoken side of this note, conjugated when it is a verb. No `~`. No vowel marks.
+The line is a memory cue, as short as it can be. Colloquial Tehrani: `mishe`, `aare`, `digeh`, `alaan`, `un`, `ro`, `ageh`, `khuneh`, spoken endings. Use the spoken side of this note, conjugated when it is a verb. No `~`. No vowel marks.
+
+Covering this note's word has to still point at the meaning. Pick the other words for that, then stop. A line that is only the word (`نمی‌دونم.`) leaves a blank card. A leftover that is only `خیلی`, or only a pronoun, does not point at the meaning. Two words is enough when the other word already makes the blank obvious (`غذا می‌خورم`). Add one word when it does not (`نمی‌دونم کجاست`, `از حرفش ناراحتم`). Do not add a second clause.
 
 Example is that line in normal spelling, including `می‌` with ZWNJ. Questions use `؟`.
 
-Example Blank is that same line in Persian script. Replace the form of this note that appears in the line with `____`, and put a right-to-left mark (U+200F) on each side of those underlines. One blank. The marks keep the underlines in the word's place. If this note is a prefix or suffix written onto another word, replace that whole word. `خونه` in `فردا می‌رم خونه.` becomes `فردا می‌رم ‏____‏.` A verb shows up conjugated: `می‌رم` in that line becomes `فردا ‏____‏ خونه.`
+An ASCII period is a left-to-right character. Put a right-to-left mark (U+200F) on each side of it, the same way as the underlines, in both Example and Example Blank. Otherwise it jumps to the right of the line. `؟` is already right-to-left and does not need the marks.
+
+Example Blank is that same line in Persian script. Replace the form of this note that appears in the line with `____`, and put a right-to-left mark (U+200F) on each side of those underlines. One blank. The marks keep the underlines in the word's place. If this note is a prefix or suffix written onto another word, replace that whole word. `خونه` in `فردا می‌رم خونه.` becomes `فردا می‌رم ‏____‏.` A verb shows up conjugated: `می‌رم` in that line becomes `فردا ‏____‏ خونه.` The period in that line is stored `‏.‏`.
 
 ## Sentences
 

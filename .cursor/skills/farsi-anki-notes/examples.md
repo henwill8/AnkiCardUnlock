@@ -82,16 +82,18 @@ Do not write `رو ~ رو`.
 
 ## Example on the vocab note
 
-One spoken line on the note itself. `____` replaces this note's word, with a right-to-left mark (U+200F) on each side of the underlines. Other words can sit outside `learned_vocab.txt`.
+One short spoken line on the note itself. The other words should make the covered word obvious, and the line should stop there. `____` replaces this note's word, with a right-to-left mark (U+200F) on each side of the underlines. An ASCII period gets the same mark on each side, or it sits on the right of the line. Other words can sit outside `learned_vocab.txt`.
 
-`khuneh` / خانه:
+`khuneh` / خانه. `فردا می‌رم ____` already points at home, so the line stays that short:
 
 ```text
-Example: فردا می‌رم خونه.
-Example Blank: فردا می‌رم ‏____‏.
+Example: فردا می‌رم خونه‏.‏
+Example Blank: فردا می‌رم ‏____‏.‏
 ```
 
-`raftan` in that same line would blank the verb instead: `فردا ‏____‏ خونه.`
+`raftan` in that same line would blank the verb instead: `فردا ‏____‏ خونه‏.‏`
+
+`نمی‌دونم.` points at nothing. `نمی‌دونم کجاست.` is enough. `از حرفش ناراحتم.` is enough for upset. Do not hang another clause on either.
 
 ## Sentence for a new word
 

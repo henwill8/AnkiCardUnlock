@@ -3,7 +3,7 @@
 
 Also writes learned_vocab.txt for conversation practice: every vocab note whose
 FA↔EN cards are no longer New, marked mature when both intervals have reached
-the script bar.
+the script bar. Rows are ordered newest or most recently failed first.
 
 Suspends a card whose front would be blank. When every template on a note is
 locked, Anki still keeps one card and shows a blank front; that card is
@@ -19,6 +19,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 ANKI_URL = "http://127.0.0.1:8765"
@@ -31,6 +32,8 @@ SENTENCE_FIELD = "SentenceUnlocked"
 SENTENCE_SCRIPT_FIELD = "SentenceScriptUnlocked"
 MATURE_INTERVAL_DEFAULT = 21
 MISSING_REPORT_LIMIT = 8
+AGAIN_EASE = 1
+REVIEW_BATCH = 200
 SLUG_RE = re.compile(r"[^a-z0-9*\-]+")
 VOCAB_OUT = Path(__file__).resolve().parent / "learned_vocab.txt"
 
@@ -116,6 +119,55 @@ def fetch_cards_by_id(card_ids: list[int]) -> dict[int, dict]:
         for card in invoke("cardsInfo", cards=card_ids[i : i + 1000]) or []:
             cards_by_id[card["cardId"]] = card
     return cards_by_id
+
+
+def study_marks(reviews_by_card: dict) -> dict[int, tuple[int, int]]:
+    """card id -> (earliest review ms, latest Again ms)."""
+    marks: dict[int, tuple[int, int]] = {}
+    for key, entries in reviews_by_card.items():
+        first = 0
+        again = 0
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            reviewed = int(entry.get("id") or 0)
+            if reviewed <= 0:
+                continue
+            if first == 0 or reviewed < first:
+                first = reviewed
+            if int(entry.get("ease") or 0) == AGAIN_EASE and reviewed > again:
+                again = reviewed
+        marks[int(key)] = (first, again)
+    return marks
+
+
+def fetch_review_marks(card_ids: list[int]) -> dict[int, tuple[int, int]]:
+    if not card_ids:
+        return {}
+    reviews: dict = {}
+    for i in range(0, len(card_ids), REVIEW_BATCH):
+        chunk = card_ids[i : i + REVIEW_BATCH]
+        reviews.update(invoke("getReviewsOfCards", cards=chunk) or {})
+    return study_marks(reviews)
+
+
+def note_study_ms(card_ids: list[int], marks: dict[int, tuple[int, int]]) -> tuple[int, int]:
+    """Earliest review and latest Again across a note's FA↔EN cards."""
+    first_ms = 0
+    again_ms = 0
+    for cid in card_ids:
+        first, again = marks.get(int(cid), (0, 0))
+        if first and (first_ms == 0 or first < first_ms):
+            first_ms = first
+        if again > again_ms:
+            again_ms = again
+    return first_ms, again_ms
+
+
+def review_day(ms: int) -> str:
+    if ms <= 0:
+        return ""
+    return datetime.fromtimestamp(ms / 1000).date().isoformat()
 
 
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -402,12 +454,27 @@ def build_vocab_index(mature_days: int) -> tuple[dict[str, dict], list[dict]]:
             and all(c.get("interval", 0) >= mature_days for c in main_cards),
             "fields": fmap,
             "tags": note.get("tags") or [],
+            "mainCardIds": [c["cardId"] for c in main_cards],
+            "first_ms": 0,
+            "again_ms": 0,
         }
         unique[nid] = info
         for k in keys:
             # First key wins unless replacing a not-yet-ready entry with a ready one
             if k not in index or (not index[k]["ready"] and info["ready"]):
                 index[k] = info
+
+    ready_ids = [
+        cid
+        for info in unique.values()
+        if info["ready"]
+        for cid in info["mainCardIds"]
+    ]
+    marks = fetch_review_marks(ready_ids)
+    for info in unique.values():
+        if not info["ready"]:
+            continue
+        info["first_ms"], info["again_ms"] = note_study_ms(info["mainCardIds"], marks)
 
     return index, list(unique.values())
 
@@ -427,8 +494,11 @@ def plain_field(value: str) -> str:
     return re.sub(r" {2,}", " ", text.replace("\t", " ").replace("\n", " ")).strip()
 
 
-def learned_row(info: dict) -> tuple[str, str, str, str, str] | None:
-    """One dump row when both FA-EN cards have been studied."""
+def learned_row(info: dict) -> tuple[str, str, str, str, str, str, str, int] | None:
+    """One dump row when both FA-EN cards have been studied.
+
+    The last item is the sort key (later of first review and last Again), not a column.
+    """
     if not info.get("ready"):
         return None
     fmap = info["fields"]
@@ -448,12 +518,23 @@ def learned_row(info: dict) -> tuple[str, str, str, str, str] | None:
             break
     tags = " ".join(t.strip() for t in info.get("tags") or [] if t.strip())
     level = "mature" if info.get("mature") else "learned"
-    return level, translit, english, script, tags.replace("\t", " ")
+    first_ms = int(info.get("first_ms") or 0)
+    again_ms = int(info.get("again_ms") or 0)
+    return (
+        level,
+        translit,
+        english,
+        script,
+        tags.replace("\t", " "),
+        review_day(first_ms),
+        review_day(again_ms),
+        max(first_ms, again_ms),
+    )
 
 
 def render_learned_vocab(vocab_notes: list[dict], mature_days: int) -> str:
     rows = [row for info in vocab_notes if (row := learned_row(info))]
-    rows.sort(key=lambda row: (row[1].casefold(), row[2].casefold(), row[3]))
+    rows.sort(key=lambda row: (-row[7], row[1].casefold(), row[2].casefold(), row[3]))
     ready = len(rows)
     mature = sum(1 for row in rows if row[0] == "mature")
     header = (
@@ -462,12 +543,15 @@ def render_learned_vocab(vocab_notes: list[dict], mature_days: int) -> str:
         f"# mature_days: {mature_days}\n"
         f"# ready: {ready}\n"
         f"# mature: {mature}\n"
-        "# columns: level, transliteration, english, script, tags\n"
+        "# columns: level, transliteration, english, script, tags, first, again\n"
         "# level mature: both FA-EN cards interval >= mature_days; script unlocked\n"
         "# level learned: both FA-EN cards are not new; script still locked\n"
+        "# first: local date of the earliest review on either FA-EN card\n"
+        "# again: local date of the latest Again on either FA-EN card; empty if none\n"
+        "# order: newest or most recently failed first (later of first and again)\n"
         "# ~ separates formal and spoken; > separates infinitive and present stem\n"
     )
-    body = "".join("\t".join(row) + "\n" for row in rows)
+    body = "".join("\t".join(row[:7]) + "\n" for row in rows)
     return header + body
 
 
