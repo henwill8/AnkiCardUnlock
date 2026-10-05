@@ -2,7 +2,7 @@
 name: farsi-conversation
 description: >-
   Practice conversational Farsi from vocab the user has learned in Anki, plus
-  any extra words they use. Reads learned_vocab.txt written by anki_unlock.py.
+  any extra words they use. Reads compact practice dumps from anki_unlock.py.
   Speaks and expects replies in the deck transliteration or in Persian script.
   Use when the user wants to practice speaking, chat, text, or hold a
   conversation in Farsi or Persian with words they know.
@@ -10,37 +10,65 @@ description: >-
 
 # Farsi conversation
 
-Hold a conversation in the user's Farsi. Start from `learned_vocab.txt`. They may also use words they remember that are not in that file. Once they use such a word, you may use it too. You may introduce a new word when the conversation needs it. Do that rarely, one word in a turn, two at most. English is only for running the practice: choosing a mode, noting formal speech, glossing a word you just introduced, or answering an English question about how to say something.
+Hold a conversation in the user's Farsi. Start from the compact practice files. They may also use words they remember that are not in those files. Once they use such a word, you may use it too. You may introduce a new word when the conversation needs it. Do that rarely, one word in a turn, two at most. English is only for running the practice: choosing a mode, noting formal speech, glossing a word you just introduced, or answering an English question about how to say something.
 
-## Word list
+## Word lists (keep this cheap)
 
-Read `learned_vocab.txt` at the project root (next to `anki_unlock.py`) before the first reply. If it is missing, or they just finished studying, run `python anki_unlock.py` from the project root, then read the new file. That needs Anki open with AnkiConnect. Do not invent words to fill a gap. Do not paste the file into the chat.
+Before the first reply, refresh dumps if needed, then read only the small files:
 
-Skip blank lines and lines that start with `#`. Each data row is tab-separated:
+1. If `practice_vocab.txt` or `practice_grammar.txt` is missing, or they just finished studying, run `python anki_unlock.py` from the project root. That needs Anki open with AnkiConnect.
+2. **Default mode:** read `practice_vocab.txt` and `practice_grammar.txt`. Do not read `learned_vocab.txt`.
+3. **New / hard / recent / missing focus:** read `practice_focus.txt` and `practice_grammar.txt`. Do not read the full `learned_vocab.txt`.
 
-`level`, `transliteration`, `english`, `script`, `tags`, `first`, `again`
+Do not invent words to fill a gap. Do not paste any of these files into the chat. Do not load `deck_index.txt` or Anki `notesInfo` for conversation.
 
-- `learned`: both FA↔EN cards have been studied. The script card is still locked.
-- `mature`: both of those cards have interval ≥ the file's `mature_days`. The script card is unlocked.
+Skip blank lines and lines that start with `#`.
+
+### `practice_vocab.txt`
+
+Tab-separated: `level`, `transliteration`, `english`, `script`
+
+Content words only. Alphabetized. This is the main in-play list for a normal chat.
+
+### `practice_grammar.txt`
+
+Tab-separated: `level`, `transliteration`, `english`, `script`, `tags`
+
+Affixes and particles. Use these for conjugation and attachment rules (`prefix::continuous`, `prefix::negation`, `prefix::imperative`, `suffix::verb-ending`, `suffix::ezafe`, `suffix::plural`, `suffix::possessive`, `particle::object-marker`).
+
+### `practice_focus.txt`
+
+Tab-separated: `level`, `transliteration`, `english`, `script`, `first`, `again`
+
+Top recent or hard rows only (about 40). Newest or most recently failed first.
+
 - `first`: local date of the earliest review on either FA↔EN card.
 - `again`: local date of the latest Again on either of those cards. Empty when Again has never been pressed.
+- A recent `first` is a new word. A recent `again` is a hard word.
 
-Rows are ordered newest or hardest first. A row is high when `first` or `again` is recent, whichever day is later.
+When they ask to practice new words, hard words, recent cards, or words they keep missing, stay on `practice_focus.txt`. If they ask for only one of those, follow that column. Use a `practice_vocab.txt` row only when the sentence needs a word that is not in the focus file. If the dates at the top of the focus file are not recent, say so and switch to the default lists.
 
-`~` splits formal and spoken (`khaaneh ~ khuneh`). `>` splits a verb infinitive from its present stem (`raftan > rav ~ ro`). A form in parentheses is optional: `ye(k)` allows `ye` and `yek`. Tags are the deck's part-of-speech tags.
+`learned_vocab.txt` is the full dated archive. Ignore it unless a practice dump is missing and unlock cannot be run.
 
-Use every in-play row unless they ask to practice new words, hard words, recent cards, or words they keep missing. Then stay near the top of the file. A recent `first` is a new word. A recent `again` is a hard word. If they ask for only one of those, follow that column. Use a lower row only when the sentence needs it. If the dates at the top are not recent, say so and use the whole file.
+`~` splits formal and spoken (`khaaneh ~ khuneh`). `>` splits a verb infinitive from its present stem (`raftan > rav ~ ro`). A form in parentheses is optional: `ye(k)` allows `ye` and `yek`.
+
+- `learned`: both FA↔EN cards have been studied. The script card is still locked.
+- `mature`: both of those cards have interval ≥ the dump's mature bar. The script card is unlocked.
+
+Use every in-play content row from `practice_vocab.txt` unless they asked for focus mode.
 
 ## Mode
 
 Transliteration is the default. Use script when they ask for Persian script, فارسی, or writing in script. Switch back when they ask for transliteration. Stay in the mode until they switch.
 
-On the first reply, name the mode and how many rows are in play, then start. If they asked to focus on new or hard words, name that focus in the same line.
+On the first reply, name the mode and how many content rows are in play, then start. If they asked to focus on new or hard words, name that focus in the same line.
 
-- **Transliteration.** Every `learned` and `mature` row. Write the transliteration column. In your own lines, when `~` is present, use the spoken side. Capitalize the first letter of a sentence only. The Farsi in the turn is only this spelling: no Persian letters in it.
-- **Script.** `mature` rows only, so practice does not reveal spellings Anki still has locked. Write the script column in everyday spelling, with no vowel marks. In your own lines, use the spoken side of `~`. Questions use `؟`. `می‌` keeps the ZWNJ. The Farsi in the turn is only Persian script. If nothing is mature, say so and stay in transliteration.
+- **Transliteration.** Every `learned` and `mature` row in the active content file. Write the transliteration column. In your own lines, when `~` is present, use the spoken side. Capitalize the first letter of a sentence only. The Farsi in the turn is only this spelling: no Persian letters in it.
+- **Script.** `mature` rows only from the active content file, so practice does not reveal spellings Anki still has locked. Write the script column in everyday spelling, with no vowel marks. In your own lines, use the spoken side of `~`. Questions use `؟`. `می‌` keeps the ZWNJ. The Farsi in the turn is only Persian script. If nothing is mature, say so and stay in transliteration.
 
-If they explicitly ask to use script for every learned word, including locked ones, use every row and say once that those spellings are still hidden on the script cards.
+Grammar rows from `practice_grammar.txt` are always available for endings and particles in both modes. In script mode, still only use a grammar row's script when that grammar row is `mature`, unless they asked to reveal locked script.
+
+If they explicitly ask to use script for every learned word, including locked ones, use every row in the active content file and say once that those spellings are still hidden on the script cards.
 
 If they answer in the other writing system, accept words that match a row, then continue in the active mode.
 
@@ -65,9 +93,9 @@ Script is strict. Strip diacritics, tatweel, and ZWNJ, and treat ي/ی and ك/ک
 
 ## What either of you may say
 
-A Farsi token is allowed when it is a row (either side of `~`, or either stem after `>`), or it is a real formal or spoken conjugation of a verb row and the prefix and the ending are also rows.
+A Farsi token is allowed when it is a row (either side of `~`, or either stem after `>`), or it is a real formal or spoken conjugation of a verb row and the prefix and the ending are also rows in `practice_grammar.txt` or the active content file.
 
-Attach a prefix, ending, ezafe, plural, possessive, or object marker only when that piece has its own row. The tags that mark those pieces are `prefix::continuous`, `prefix::negation`, `prefix::imperative`, `suffix::verb-ending`, `suffix::ezafe`, `suffix::plural`, `suffix::possessive`, and `particle::object-marker`.
+Attach a prefix, ending, ezafe, plural, possessive, or object marker only when that piece has its own row. The tags that mark those pieces are on `practice_grammar.txt`.
 
 You use the spoken side. Say a `phrase` row as a whole. Leave out a synonym that has no row, unless they have already used that synonym. If you are not sure a conjugated form is real, do not use it.
 

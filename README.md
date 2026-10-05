@@ -15,12 +15,32 @@ What it does:
 | Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Cleared when either card drops below 21, and that script card is suspended |
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
 | Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended |
-| Conversation word list | Both FA↔EN cards are **not New** | `learned_vocab.txt` (`mature` when interval ≥ 21), newest or most recently failed first |
+| Conversation word list | Both FA↔EN cards are **not New** | Compact practice dumps + full `learned_vocab.txt` |
 | Blank front | No template would show text, or this card's front would not | Suspend that card. A fully locked note's only card is suspended too |
 
 Same maturity bar for vocab script and sentence script. Unlock fields sync; run on desktop, then sync.
 
-`learned_vocab.txt` is written next to `anki_unlock.py` on every run (`--vocab-out` changes the path). `learned` rows are words you have studied. `mature` rows are the ones whose script cards are unlocked. `first` is the day a word was first reviewed. `again` is the day Again was last pressed, or empty. Rows are ordered by whichever of those days is later, so the newest and hardest words are at the top. The `farsi-conversation` skill reads that file and can use the whole list or stay on those top rows.
+Every unlock run writes:
+
+| File | Contents |
+|------|----------|
+| `practice_vocab.txt` | Content words only: level, translit, English, script |
+| `practice_grammar.txt` | Affixes/particles with tags |
+| `practice_focus.txt` | Top ~40 newest/hardest rows with `first` / `again` |
+| `learned_vocab.txt` | Full dated archive (`--vocab-out` changes this path) |
+
+`learned` = studied. `mature` = script unlocked (interval ≥ 21). The `farsi-conversation` skill reads the compact practice files by default, and `practice_focus.txt` when you ask for new/hard words.
+
+### Compact indexes + sentence candidates
+
+Vocab notes have no example-sentence fields. Sentence practice is only in the `Farsi Sentences` deck.
+
+```text
+python anki_unlock.py --export-indexes
+python .cursor/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words خونه اتاق
+```
+
+`--export-indexes` writes `deck_index.txt` and `sentences_index.txt` (guid + compact fields). The candidate script searches Tatoeba Persian for lines whose tokens are all in your deck and writes `sentence_candidates.txt`. Many hits are formal and still need a spoken Tehrani rewrite; the script does not auto-import.
 
 `req::` tags nest under one sidebar entry. Ignore them while studying.
 

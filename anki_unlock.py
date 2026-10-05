@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Unlock Farsi script cards + sentence cards via AnkiConnect.
 
-Also writes learned_vocab.txt for conversation practice: every vocab note whose
-FA↔EN cards are no longer New, marked mature when both intervals have reached
-the script bar. Rows are ordered newest or most recently failed first.
+Also writes conversation dumps: learned_vocab.txt (full dated list),
+practice_vocab.txt (compact content words), practice_grammar.txt (affixes),
+and practice_focus.txt (top recent/hard rows).
 
-Suspends a card whose front would be blank. When every template on a note is
-locked, Anki still keeps one card and shows a blank front; that card is
-suspended too. Script unlock is cleared when a word drops below the mature
-interval, and that card is suspended until it is mature again.
+Suspends a gated card unless its unlock field is exactly 1, and suspends any
+blank front. When every template on a note is locked, Anki still keeps one
+card with a blank front; that card is suspended too. Script unlock is cleared
+when a word drops below the mature interval, and that card is suspended until
+it is mature again.
 """
 
 from __future__ import annotations
@@ -17,9 +18,12 @@ import argparse
 import html
 import json
 import re
+import sqlite3
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -36,7 +40,21 @@ MISSING_REPORT_LIMIT = 8
 AGAIN_EASE = 1
 REVIEW_BATCH = 200
 SLUG_RE = re.compile(r"[^a-z0-9*\-]+")
-VOCAB_OUT = Path(__file__).resolve().parent / "learned_vocab.txt"
+ROOT = Path(__file__).resolve().parent
+VOCAB_OUT = ROOT / "learned_vocab.txt"
+PRACTICE_VOCAB_OUT = ROOT / "practice_vocab.txt"
+PRACTICE_GRAMMAR_OUT = ROOT / "practice_grammar.txt"
+PRACTICE_FOCUS_OUT = ROOT / "practice_focus.txt"
+DECK_INDEX_OUT = ROOT / "deck_index.txt"
+SENTENCES_INDEX_OUT = ROOT / "sentences_index.txt"
+CACHE_DIR = ROOT / ".cache"
+FOCUS_LIMIT = 40
+GRAMMAR_TAG_MARKERS = (
+    "grammar",
+    "prefix::",
+    "suffix::",
+    "particle::",
+)
 
 
 def invoke(action: str, **params):
@@ -301,27 +319,21 @@ def apply_visibility(
     cards_by_id: dict[int, dict],
     ord_gates: dict[int, str],
     fronts: list[str],
-    newly_on: dict[int, set[str]],
     *,
     unsuspend: bool = True,
 ) -> tuple[int, int, int]:
-    """Suspend blank fronts. Return (suspended, unsuspended, fully locked notes).
+    """Suspend locked/blank fronts. Return (suspended, unsuspended, fully locked).
 
-    A locked template is suspended on its own. When no template would show
-    text, Anki still keeps one card with a blank front — suspend every card
-    on that note.
+    A gated card (script / sentence unlock field) stays suspended unless that
+    field is exactly 1 on the note. Blank fronts are suspended too. When no
+    template would show text, every card on the note is suspended.
     """
     to_suspend: list[int] = []
     to_unsuspend: list[int] = []
     fully_locked = 0
     for note in notes:
-        nid = note["noteId"]
         fmap = field_map(note)
-        just_on = newly_on.get(nid, set())
-        render_fields = dict(fmap)
-        for field in just_on:
-            render_fields[field] = "1"
-        showing = showing_ords(fronts, render_fields) if fronts else set()
+        showing = showing_ords(fronts, fmap) if fronts else set()
         note_cards = [
             cid for cid in (note.get("cards") or []) if cid in cards_by_id
         ]
@@ -332,21 +344,18 @@ def apply_visibility(
             ord_ = card.get("ord", 0)
             suspended = card.get("queue") == -1
             field = ord_gates.get(ord_)
-            just_unlocked = bool(field) and field in just_on
             template_blank = bool(fronts) and ord_ not in showing
-            live_blank = rendered_front_blank(card.get("question") or "") and not just_unlocked
+            live_blank = rendered_front_blank(card.get("question") or "")
+            if field and fmap.get(field, "") != "1":
+                if not suspended:
+                    to_suspend.append(cid)
+                continue
             if template_blank or live_blank:
                 if not suspended:
                     to_suspend.append(cid)
                 continue
-            if not field:
-                continue
-            unlocked = fmap.get(field, "") == "1" or just_unlocked
-            if unlocked:
-                if unsuspend and suspended:
-                    to_unsuspend.append(cid)
-            elif not suspended:
-                to_suspend.append(cid)
+            if field and unsuspend and suspended:
+                to_unsuspend.append(cid)
 
     actions: list[dict] = []
     for i in range(0, len(to_suspend), 500):
@@ -366,7 +375,6 @@ def apply_visibility(
 
 def sync_card_visibility(
     models: list[str],
-    newly_on: dict[int, set[str]],
     *,
     unsuspend: bool = True,
 ) -> None:
@@ -391,7 +399,6 @@ def sync_card_visibility(
             cards_by_id,
             gates,
             fronts,
-            newly_on,
             unsuspend=unsuspend,
         )
         suspended += suspended_n
@@ -551,9 +558,13 @@ def learned_row(info: dict) -> tuple[str, str, str, str, str, str, str, int] | N
     )
 
 
-def render_learned_vocab(vocab_notes: list[dict], mature_days: int) -> str:
+def sorted_learned_rows(vocab_notes: list[dict]) -> list[tuple]:
     rows = [row for info in vocab_notes if (row := learned_row(info))]
     rows.sort(key=lambda row: (-row[7], row[1].casefold(), row[2].casefold(), row[3]))
+    return rows
+
+
+def render_learned_vocab(rows: list[tuple], mature_days: int) -> str:
     ready = len(rows)
     mature = sum(1 for row in rows if row[0] == "mature")
     header = (
@@ -574,15 +585,198 @@ def render_learned_vocab(vocab_notes: list[dict], mature_days: int) -> str:
     return header + body
 
 
+def is_grammar_row(tags: str) -> bool:
+    lowered = tags.lower()
+    return any(marker in lowered for marker in GRAMMAR_TAG_MARKERS)
+
+
+def render_practice_vocab(rows: list[tuple]) -> str:
+    content = [row for row in rows if not is_grammar_row(row[4])]
+    content.sort(key=lambda row: (row[1].casefold(), row[2].casefold(), row[3]))
+    header = (
+        "# practice_vocab\n"
+        "# source: anki_unlock.py\n"
+        f"# notes: {len(content)}\n"
+        "# columns: level, transliteration, english, script\n"
+        "# Content words only (no grammar affixes). For farsi-conversation default mode.\n"
+        "# ~ separates formal and spoken; > separates infinitive and present stem\n"
+    )
+    body = "".join("\t".join(row[:4]) + "\n" for row in content)
+    return header + body
+
+
+def render_practice_grammar(rows: list[tuple]) -> str:
+    grammar = [row for row in rows if is_grammar_row(row[4])]
+    grammar.sort(key=lambda row: (row[1].casefold(), row[2].casefold(), row[3]))
+    header = (
+        "# practice_grammar\n"
+        "# source: anki_unlock.py\n"
+        f"# notes: {len(grammar)}\n"
+        "# columns: level, transliteration, english, script, tags\n"
+        "# Affixes and particles for conjugation / attachment rules.\n"
+    )
+    body = "".join("\t".join(row[:5]) + "\n" for row in grammar)
+    return header + body
+
+
+def render_practice_focus(rows: list[tuple], limit: int = FOCUS_LIMIT) -> str:
+    focus = rows[:limit]
+    header = (
+        "# practice_focus\n"
+        "# source: anki_unlock.py\n"
+        f"# notes: {len(focus)}\n"
+        f"# limit: {limit}\n"
+        "# columns: level, transliteration, english, script, first, again\n"
+        "# Newest or most recently failed first. For new/hard conversation focus.\n"
+        "# first: earliest FA-EN review day; again: latest Again day (empty if none)\n"
+    )
+    body = "".join(
+        "\t".join((row[0], row[1], row[2], row[3], row[5], row[6])) + "\n"
+        for row in focus
+    )
+    return header + body
+
+
 def write_learned_vocab(
     vocab_notes: list[dict], path: Path, mature_days: int
 ) -> tuple[int, int]:
-    text = render_learned_vocab(vocab_notes, mature_days)
+    rows = sorted_learned_rows(vocab_notes)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
-    ready = sum(1 for line in text.splitlines() if line and not line.startswith("#"))
-    mature = sum(1 for line in text.splitlines() if line.startswith("mature\t"))
+    path.write_text(
+        render_learned_vocab(rows, mature_days), encoding="utf-8", newline="\n"
+    )
+    PRACTICE_VOCAB_OUT.write_text(
+        render_practice_vocab(rows), encoding="utf-8", newline="\n"
+    )
+    PRACTICE_GRAMMAR_OUT.write_text(
+        render_practice_grammar(rows), encoding="utf-8", newline="\n"
+    )
+    PRACTICE_FOCUS_OUT.write_text(
+        render_practice_focus(rows), encoding="utf-8", newline="\n"
+    )
+    ready = len(rows)
+    mature = sum(1 for row in rows if row[0] == "mature")
     return ready, mature
+
+
+def export_deck_package(deck: str, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    ok = invoke("exportPackage", deck=deck, path=str(path), includeSched=False)
+    if not ok or not path.is_file():
+        raise RuntimeError(f"exportPackage failed for deck {deck!r} -> {path}")
+
+
+def read_notes_from_apkg(path: Path) -> list[tuple[str, list[str], str, str]]:
+    """Return (guid, fields, tags, model_name) rows from an exported package."""
+    with zipfile.ZipFile(path) as zf:
+        name = (
+            "collection.anki21"
+            if "collection.anki21" in zf.namelist()
+            else "collection.anki2"
+        )
+        raw = zf.read(name)
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "collection.anki2"
+        db_path.write_bytes(raw)
+        con = sqlite3.connect(db_path)
+        models = json.loads(con.execute("SELECT models FROM col").fetchone()[0])
+        model_name = {int(mid): m["name"] for mid, m in models.items()}
+        rows: list[tuple[str, list[str], str, str]] = []
+        for mid, guid, flds, tags in con.execute(
+            "SELECT mid, guid, flds, tags FROM notes"
+        ):
+            rows.append(
+                (
+                    guid,
+                    flds.split("\x1f"),
+                    (tags or "").strip(),
+                    model_name.get(int(mid), ""),
+                )
+            )
+        con.close()
+    return rows
+
+
+def render_deck_index(rows: list[tuple[str, list[str], str, str]]) -> str:
+    body_lines: list[str] = []
+    for guid, fields, tags, model in rows:
+        if model != VOCAB_MODEL:
+            continue
+        translit = plain_field(fields[0]) if fields else ""
+        english = plain_field(fields[1]) if len(fields) > 1 else ""
+        script = plain_field(fields[2]) if len(fields) > 2 else ""
+        tag_s = " ".join(tags.split())
+        body_lines.append("\t".join([guid, translit, english, script, tag_s]))
+    body_lines.sort(key=lambda line: line.split("\t", 2)[1].casefold())
+    header = (
+        "# deck_index\n"
+        "# source: anki_unlock.py --export-indexes\n"
+        f"# notes: {len(body_lines)}\n"
+        "# columns: guid, transliteration, english, script, tags\n"
+        "# Prefer this file over AnkiConnect notesInfo for sentence generation.\n"
+    )
+    return header + "".join(line + "\n" for line in body_lines)
+
+
+def render_sentences_index(rows: list[tuple[str, list[str], str, str]]) -> str:
+    body_lines: list[str] = []
+    for guid, fields, tags, model in rows:
+        if model != SENTENCE_MODEL:
+            continue
+        translit = plain_field(fields[0]) if fields else ""
+        english = plain_field(fields[1]) if len(fields) > 1 else ""
+        script = plain_field(fields[2]) if len(fields) > 2 else ""
+        tag_s = " ".join(tags.split())
+        body_lines.append("\t".join([guid, translit, english, script, tag_s]))
+    body_lines.sort(key=lambda line: line.split("\t", 2)[1].casefold())
+    header = (
+        "# sentences_index\n"
+        "# source: anki_unlock.py --export-indexes\n"
+        f"# notes: {len(body_lines)}\n"
+        "# columns: guid, transliteration, english, script, tags\n"
+        "# Prefer this file over AnkiConnect notesInfo when adding sentences.\n"
+    )
+    return header + "".join(line + "\n" for line in body_lines)
+
+
+def export_indexes(
+    deck_out: Path | None = None,
+    sentences_out: Path | None = None,
+) -> tuple[int, int]:
+    """Write compact vocab/sentence indexes with guids (via deck package export)."""
+    cache = CACHE_DIR
+    cache.mkdir(parents=True, exist_ok=True)
+    vocab_pkg = cache / "_export_farsi.apkg"
+    sent_pkg = cache / "_export_farsi_sentences.apkg"
+    export_deck_package(VOCAB_DECK, vocab_pkg)
+    vocab_rows = read_notes_from_apkg(vocab_pkg)
+    deck_text = render_deck_index(vocab_rows)
+    deck_path = deck_out or DECK_INDEX_OUT
+    deck_path.write_text(deck_text, encoding="utf-8", newline="\n")
+    vocab_n = sum(1 for line in deck_text.splitlines() if line and not line.startswith("#"))
+
+    sent_n = 0
+    models = invoke("modelNames") or []
+    sent_path = sentences_out or SENTENCES_INDEX_OUT
+    if SENTENCE_MODEL in models:
+        export_deck_package(SENTENCE_DECK, sent_pkg)
+        sent_rows = read_notes_from_apkg(sent_pkg)
+        sent_text = render_sentences_index(sent_rows)
+        sent_path.write_text(sent_text, encoding="utf-8", newline="\n")
+        sent_n = sum(
+            1 for line in sent_text.splitlines() if line and not line.startswith("#")
+        )
+    else:
+        sent_path.write_text(
+            "# sentences_index\n# sentence model not found\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    print(f"Deck index: {vocab_n} notes -> {deck_path}")
+    print(f"Sentences index: {sent_n} notes -> {sent_path}")
+    return vocab_n, sent_n
 
 
 def flush_updates(updates: list[dict]) -> None:
@@ -626,7 +820,7 @@ def unlock(
     suspend_only: bool = False,
 ) -> None:
     if suspend_only:
-        sync_card_visibility(invoke("modelNames"), {}, unsuspend=False)
+        sync_card_visibility(invoke("modelNames"), unsuspend=False)
         print("Done.")
         return
 
@@ -635,7 +829,6 @@ def unlock(
     print(f"Indexed {len(index)} vocab keys ({len(vocab_notes)} notes) from {VOCAB_DECK!r}")
 
     updates: list[dict] = []
-    newly_on: dict[int, set[str]] = {}
     script_on = script_off = 0
     for info in vocab_notes:
         fmap = info["fields"]
@@ -647,7 +840,6 @@ def unlock(
                 continue
             value = "1"
             script_on += 1
-            newly_on.setdefault(info["noteId"], set()).add(SCRIPT_FIELD)
         elif current == "1":
             value = ""
             script_off += 1
@@ -702,9 +894,6 @@ def unlock(
                         "params": {"note": {"id": note["noteId"], "fields": pending}},
                     }
                 )
-                turned_on = {name for name, value in pending.items() if value == "1"}
-                if turned_on:
-                    newly_on.setdefault(note["noteId"], set()).update(turned_on)
 
     flush_updates(updates)
 
@@ -719,11 +908,15 @@ def unlock(
             for persian, miss in missing_report:
                 print(f"  {persian!r} → missing {miss}")
 
-    sync_card_visibility(models, newly_on)
+    sync_card_visibility(models)
 
     out = Path(vocab_out) if vocab_out else VOCAB_OUT
     ready_n, mature_n = write_learned_vocab(vocab_notes, out, mature_days)
     print(f"Learned vocab: {ready_n} ready ({mature_n} mature) -> {out}")
+    print(
+        f"Practice dumps: {PRACTICE_VOCAB_OUT.name}, "
+        f"{PRACTICE_GRAMMAR_OUT.name}, {PRACTICE_FOCUS_OUT.name}"
+    )
 
     print("Done. Sync Anki when ready so mobile/web get unlock fields.")
 
@@ -737,11 +930,32 @@ def main():
         help="Suspend blank and fully locked cards without changing unlock fields",
     )
     parser.add_argument(
+        "--export-indexes",
+        action="store_true",
+        help="Write compact deck_index.txt and sentences_index.txt, then exit",
+    )
+    parser.add_argument(
         "--vocab-out",
         default=str(VOCAB_OUT),
         help="Learned-vocab dump for conversation practice",
     )
+    parser.add_argument(
+        "--deck-index-out",
+        default=str(DECK_INDEX_OUT),
+        help="Compact vocab index path (with --export-indexes)",
+    )
+    parser.add_argument(
+        "--sentences-index-out",
+        default=str(SENTENCES_INDEX_OUT),
+        help="Compact sentence index path (with --export-indexes)",
+    )
     args = parser.parse_args()
+    if args.export_indexes:
+        export_indexes(
+            deck_out=Path(args.deck_index_out),
+            sentences_out=Path(args.sentences_index_out),
+        )
+        return
     unlock(
         mature_days=args.mature_days,
         vocab_out=args.vocab_out,

@@ -1,4 +1,12 @@
 __pycache__
 *.pyc
 learned_vocab.txt
+practice_vocab.txt
+practice_grammar.txt
+practice_focus.txt
 farsi_import.txt
+farsi_sentences_import.txt
+deck_index.txt
+sentences_index.txt
+sentence_candidates.txt
+.cache/

@@ -80,24 +80,9 @@ shodan &gt; shav ~ sho / شدن &gt; شو
 
 Do not write `رو ~ رو`.
 
-## Example on the vocab note
-
-One short spoken line on the note itself. The other words should make the covered word obvious, and the line should stop there. `____` replaces this note's word, with a right-to-left mark (U+200F) on each side of the underlines. An ASCII period gets the same mark on each side, or it sits on the right of the line. Other words can sit outside `learned_vocab.txt`.
-
-`khuneh` / خانه. `فردا می‌رم ____` already points at home, so the line stays that short:
-
-```text
-Example: فردا می‌رم خونه‏.‏
-Example Blank: فردا می‌رم ‏____‏.‏
-```
-
-`raftan` in that same line would blank the verb instead: `فردا ‏____‏ خونه‏.‏`
-
-`نمی‌دونم.` points at nothing. `نمی‌دونم کجاست.` is enough. `از حرفش ناراحتم.` is enough for upset. Do not hang another clause on either.
-
 ## Sentence for a new word
 
-`otaagh` is not something you say alone. Put it in a line you would actually text, using other deck words. Spoken `ro`, `un`, `mishe`. First letter capitalized. Unlock fields empty.
+Run `find_sentence_candidates.py` first and adapt a covered hit when you can. `otaagh` is not something you say alone. Put it in a line you would actually text, using other deck words. Spoken `ro`, `un`, `mishe`. First letter capitalized. Unlock fields empty.
 
 ```text
 Mishe fardaa berim un otaagh?

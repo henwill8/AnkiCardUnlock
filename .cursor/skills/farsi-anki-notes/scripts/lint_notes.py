@@ -9,18 +9,7 @@ import sys
 from pathlib import Path
 
 NONSTANDARD = ("oo", "ee", "â", "ā", "ī", "ū", "ō", "ē", "'", "’")
-RLM = "\u200f"
-
-
-def period_marks_ok(text: str) -> bool:
-    for index, ch in enumerate(text):
-        if ch != ".":
-            continue
-        before = text[index - 1] if index else ""
-        after = text[index + 1] if index + 1 < len(text) else ""
-        if before != RLM or after != RLM:
-            return False
-    return True
+FIELD_COUNT = 8
 
 
 def split_rows(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
@@ -52,16 +41,16 @@ def lint(path: Path) -> list[str]:
     header, rows = split_rows(text)
     errors: list[str] = []
     joined = "\n".join(header)
-    for needle in ("#separator:tab", "#html:true", "#guid column:1", "#tags column:10"):
+    for needle in ("#separator:tab", "#html:true", "#guid column:1", "#tags column:8"):
         if needle not in joined:
             errors.append(f"header missing {needle}")
 
     seen_guid: dict[str, int] = {}
     for lineno, fields in rows:
-        if len(fields) != 10:
-            errors.append(f"L{lineno}: {len(fields)} fields, want 10")
+        if len(fields) != FIELD_COUNT:
+            errors.append(f"L{lineno}: {len(fields)} fields, want {FIELD_COUNT}")
             continue
-        guid, model, deck, tr, _en, script, example, blank, unlocked, tags = fields
+        guid, model, deck, tr, _en, script, unlocked, tags = fields
         where = f"L{lineno}"
         if not guid:
             errors.append(f"{where}: guid empty")
@@ -83,28 +72,6 @@ def lint(path: Path) -> list[str]:
             errors.append(f"{where}: script missing Persian letters")
         if unlocked not in ("", "1"):
             errors.append(f"{where}: ScriptUnlocked is {unlocked!r}")
-        if example != example.strip() or blank != blank.strip():
-            errors.append(f"{where}: leading or trailing space in example")
-        if not any("\u0600" <= ch <= "\u06ff" for ch in example):
-            errors.append(f"{where}: example sentence missing Persian letters")
-        if not period_marks_ok(example) or not period_marks_ok(blank):
-            errors.append(f"{where}: period missing right-to-left marks")
-        if "____" not in blank:
-            errors.append(f"{where}: example blank missing ____")
-        elif f"{RLM}____{RLM}" not in blank:
-            errors.append(f"{where}: example blank underlines missing right-to-left marks")
-        elif not any(
-            "\u0600" <= ch <= "\u06ff" for ch in blank.replace("____", "").replace(RLM, "")
-        ):
-            errors.append(f"{where}: example blank leaves no words")
-        else:
-            rest = blank.replace("____", "")
-            if any(ch.isascii() and ch.isalpha() for ch in rest):
-                errors.append(f"{where}: example blank is not in Persian script")
-            elif rest.strip(" \t.!?؟،؛:\"'()[]\u200f") and not any(
-                "\u0600" <= ch <= "\u06ff" for ch in rest
-            ):
-                errors.append(f"{where}: example blank is not in Persian script")
         if not tags.strip():
             errors.append(f"{where}: tags empty")
     return errors
