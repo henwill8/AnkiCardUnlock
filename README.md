@@ -8,13 +8,15 @@ Colloquial / conversational sentences for talking and texting, gated on your `Fa
 python anki_unlock.py
 ```
 
+Restart Anki once before the next run. New script cards are then spaced evenly through the cards still in the new queue. Buried siblings stay at the front, and the other new cards keep their order.
+
 What it does:
 
 | Target | Rule | Effect |
 |--------|------|--------|
-| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Cleared when either card drops below 21, and that script card is suspended |
+| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Cleared when either card drops below 21, and that script card is suspended. New script cards get a random new-card position |
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
-| Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended |
+| Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended. New ones get a random new-card position |
 | Conversation word list | Both FA↔EN cards are **not New** | Compact practice dumps + full `learned_vocab.txt` |
 | Blank front | No template would show text, or this card's front would not | Suspend that card. A fully locked note's only card is suspended too |
 
