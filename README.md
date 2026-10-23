@@ -12,9 +12,9 @@ What it does:
 
 | Target | Rule | Effect |
 |--------|------|--------|
-| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Stays set if a card later drops below 21 |
+| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Stays set if a card later drops below 21. New script cards are spaced evenly through the new queue |
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
-| Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended |
+| Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended. New ones are spaced evenly through the new queue |
 | Conversation word list | Both FA↔EN cards are **not New** | Compact practice dumps + full `learned_vocab.txt` |
 | Blank front | No template would show text, or this card's front would not | Suspend that card. A fully locked note's only card is suspended too |
 

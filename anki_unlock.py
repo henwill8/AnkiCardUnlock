@@ -9,7 +9,11 @@ Suspends a gated card unless its unlock field is exactly 1, and suspends any
 blank front. When every template on a note is locked, Anki still keeps one
 card with a blank front; that card is suspended too. Once a vocab script
 card is unlocked it stays unlocked, even if that note later drops below the
-mature interval.
+mature interval. Sentence script unlock is cleared when a required word
+drops below the mature interval, and those cards stay suspended until it is
+mature again. New script cards are spaced evenly through the cards still in
+the new queue. Buried siblings stay at the front, in their current order.
+Other new cards keep their order too.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import random
 import re
 import sqlite3
 import sys
@@ -321,8 +326,10 @@ def apply_visibility(
     fronts: list[str],
     *,
     unsuspend: bool = True,
-) -> tuple[int, int, int]:
-    """Suspend locked/blank fronts. Return (suspended, unsuspended, fully locked).
+) -> tuple[int, int, int, list[int], list[int]]:
+    """Suspend locked/blank fronts.
+
+    Return (suspended, unsuspended, fully locked, unsuspended ids, suspended ids).
 
     A gated card (script / sentence unlock field) stays suspended unless that
     field is exactly 1 on the note. Blank fronts are suspended too. When no
@@ -370,7 +377,157 @@ def apply_visibility(
             }
         )
     invoke_multi(actions)
-    return len(to_suspend), len(to_unsuspend), fully_locked
+    return len(to_suspend), len(to_unsuspend), fully_locked, to_unsuspend, to_suspend
+
+
+def new_script_card_ids(
+    notes: list[dict],
+    cards_by_id: dict[int, dict],
+    ord_gates: dict[int, str],
+    unsuspended: set[int],
+    suspended: set[int],
+) -> list[int]:
+    """New script cards already in the queue, plus ones unsuspended this run."""
+    found: list[int] = []
+    for note in notes:
+        for cid in note.get("cards") or []:
+            card = cards_by_id.get(cid)
+            if not card or cid in suspended:
+                continue
+            if ord_gates.get(card.get("ord", 0)) not in (SCRIPT_FIELD, SENTENCE_SCRIPT_FIELD):
+                continue
+            if card.get("type") != 0:
+                continue
+            if card.get("queue") == 0 or cid in unsuspended:
+                found.append(cid)
+    return found
+
+
+def _queue_cards(card_ids: list[int]) -> list[dict]:
+    records = []
+    for i in range(0, len(card_ids), 1000):
+        chunk = card_ids[i : i + 1000]
+        info = invoke(
+            "cardsInfo",
+            cards=chunk,
+            fields=["due", "ord", "type", "queue", "note", "deckName"],
+        ) or []
+        for cid, card in zip(chunk, info):
+            if not card or card.get("type") != 0:
+                continue
+            queue = card.get("queue")
+            if queue not in (0, -2, -3):
+                continue
+            records.append(
+                {
+                    "id": cid,
+                    "due": int(card.get("due") or 0),
+                    "ord": int(card.get("ord") or 0),
+                    "note": int(card.get("note") or 0),
+                    "deck": card.get("deckName") or "",
+                    "queue": queue,
+                }
+            )
+    return records
+
+
+def _adjacent_note_blocks(cards: list[dict]) -> list[list[dict]]:
+    blocks: list[list[dict]] = []
+    for card in cards:
+        if blocks and blocks[-1][0]["note"] == card["note"]:
+            blocks[-1].append(card)
+        else:
+            blocks.append([card])
+    return blocks
+
+
+def _script_blocks(cards: list[dict]) -> list[list[dict]]:
+    by_note: dict[int, list[dict]] = {}
+    for card in cards:
+        by_note.setdefault(card["note"], []).append(card)
+    blocks = []
+    for group in by_note.values():
+        group.sort(key=lambda card: (card["ord"], card["id"]))
+        blocks.append(group)
+    random.shuffle(blocks)
+    return blocks
+
+
+def _spread_script_blocks(others: list[dict], scripts: list[dict]) -> list[dict]:
+    """Space script-card groups evenly through the other cards.
+
+    Other cards keep their queue order. Cards of one note that are already
+    next to each other stay next to each other. Script cards of one note stay
+    together.
+    """
+    others = sorted(others, key=lambda card: (card["due"], card["ord"], card["id"]))
+    fixed = _adjacent_note_blocks(others)
+    inserted = _script_blocks(scripts)
+    if not inserted:
+        return [card for block in fixed for card in block]
+    if not fixed:
+        return [card for block in inserted for card in block]
+    cards_before = [0]
+    for block in fixed:
+        cards_before.append(cards_before[-1] + len(block))
+    n_cards = cards_before[-1]
+    at_gap: dict[int, list[list[dict]]] = {i: [] for i in range(len(cards_before))}
+    for index, block in enumerate(inserted):
+        target = (index + 0.5) * n_cards / len(inserted)
+        gap = min(
+            range(len(cards_before)),
+            key=lambda candidate: (abs(cards_before[candidate] - target), candidate),
+        )
+        at_gap[gap].append(block)
+    sequence: list[dict] = []
+    for gap, block in enumerate(fixed):
+        for script_block in at_gap[gap]:
+            sequence.extend(script_block)
+        sequence.extend(block)
+    for script_block in at_gap[len(fixed)]:
+        sequence.extend(script_block)
+    return sequence
+
+
+def scatter_new_script_cards(card_ids: list[int]) -> int:
+    """Space these script cards evenly through each deck's new queue."""
+    moving = set(dict.fromkeys(card_ids))
+    if not moving:
+        return 0
+    found = invoke(
+        "findCards",
+        query=(
+            f'(deck:"{VOCAB_DECK}" OR deck:"{SENTENCE_DECK}") '
+            "(is:new OR is:buried)"
+        ),
+    ) or []
+    records = _queue_cards(list(dict.fromkeys([*found, *moving])))
+    by_deck: dict[str, list[dict]] = {}
+    for card in records:
+        by_deck.setdefault(card["deck"], []).append(card)
+    ordered: list[int] = []
+    positions: list[int] = []
+    order_key = lambda card: (card["due"], card["ord"], card["id"])
+    for cards in by_deck.values():
+        buried = sorted(
+            (
+                card
+                for card in cards
+                if card["queue"] in (-2, -3) and card["id"] not in moving
+            ),
+            key=order_key,
+        )
+        others = [card for card in cards if card["queue"] == 0 and card["id"] not in moving]
+        scripts = [card for card in cards if card["id"] in moving and card["queue"] == 0]
+        if not scripts:
+            continue
+        sequence = buried + _spread_script_blocks(others, scripts)
+        for due, card in enumerate(sequence):
+            ordered.append(card["id"])
+            positions.append(due)
+    if ordered:
+        invoke("repositionNewCards", cards=ordered, positions=positions)
+    return len(moving)
 
 
 def sync_card_visibility(
@@ -390,11 +547,20 @@ def sync_card_visibility(
     ]
     cards_by_id = fetch_cards_by_id(all_card_ids)
     suspended = unsuspended = fully_locked = 0
+    just_unsuspended: set[int] = set()
+    just_suspended: set[int] = set()
+    script_new: list[int] = []
     for model, notes in ((VOCAB_MODEL, vocab_raw), (SENTENCE_MODEL, sentences)):
         if not notes or model not in templates:
             continue
         gates, fronts = templates[model]
-        suspended_n, unsuspended_n, locked_n = apply_visibility(
+        (
+            suspended_n,
+            unsuspended_n,
+            locked_n,
+            unsuspended_ids,
+            suspended_ids,
+        ) = apply_visibility(
             notes,
             cards_by_id,
             gates,
@@ -404,10 +570,30 @@ def sync_card_visibility(
         suspended += suspended_n
         unsuspended += unsuspended_n
         fully_locked += locked_n
+        just_unsuspended.update(unsuspended_ids)
+        just_suspended.update(suspended_ids)
+        if unsuspend:
+            script_new.extend(
+                new_script_card_ids(
+                    notes, cards_by_id, gates, just_unsuspended, just_suspended
+                )
+            )
     print(
         f"Visibility: suspended={suspended}; unsuspended={unsuspended}; "
         f"fully locked notes={fully_locked}"
     )
+    if script_new:
+        try:
+            moved = scatter_new_script_cards(script_new)
+        except RuntimeError as exc:
+            if "unsupported action" not in str(exc):
+                raise
+            print(
+                "New script cards were not repositioned. "
+                "Restart Anki, then run this script again."
+            )
+        else:
+            print(f"New script cards repositioned: {moved}")
 
 
 def ensure_field(model: str, field: str, existing: list[str] | None = None) -> list[str]:
