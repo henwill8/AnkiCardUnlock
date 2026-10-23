@@ -12,7 +12,7 @@ What it does:
 
 | Target | Rule | Effect |
 |--------|------|--------|
-| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Cleared when either card drops below 21, and that script card is suspended |
+| Vocab script cards | Both FA↔EN cards **mature** (interval ≥ 21 days) | `ScriptUnlocked=1`. Stays set if a card later drops below 21 |
 | Sentence Read / Say / Fill | Every `req::…` vocab note has **no New cards** | `SentenceUnlocked=1` |
 | Sentence Script Read / Write | Every `req::…` vocab note is **mature** (≥ 21 days) | `SentenceScriptUnlocked=1`. Cleared when a required word drops below 21, and those script cards are suspended |
 | Conversation word list | Both FA↔EN cards are **not New** | Compact practice dumps + full `learned_vocab.txt` |
@@ -50,7 +50,7 @@ Once translit-unlocked (`SentenceUnlocked`):
 
 1. **Read** — Farsi Transliteration → English  
 2. **Say** — English → Farsi Transliteration (speak/text it)  
-3. **Cloze / Fill** — one-word blank, only if `ClozePrompt` is filled  
+3. **Cloze / Fill** — English meaning + one-word blank in the Persian line (only if `ClozePrompt` is filled)
 
 Once script-unlocked later (`SentenceScriptUnlocked`):
 

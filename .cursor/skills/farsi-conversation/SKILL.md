@@ -52,8 +52,8 @@ When they ask to practice new words, hard words, recent cards, or words they kee
 
 `~` splits formal and spoken (`khaaneh ~ khuneh`). `>` splits a verb infinitive from its present stem (`raftan > rav ~ ro`). A form in parentheses is optional: `ye(k)` allows `ye` and `yek`.
 
-- `learned`: both FA↔EN cards have been studied. The script card is still locked.
-- `mature`: both of those cards have interval ≥ the dump's mature bar. The script card is unlocked.
+- `learned`: both FA↔EN cards have been studied.
+- `mature`: both of those cards have interval ≥ the dump's mature bar.
 
 Use every in-play content row from `practice_vocab.txt` unless they asked for focus mode.
 
@@ -64,7 +64,7 @@ Transliteration is the default. Use script when they ask for Persian script, ف�
 On the first reply, name the mode and how many content rows are in play, then start. If they asked to focus on new or hard words, name that focus in the same line.
 
 - **Transliteration.** Every `learned` and `mature` row in the active content file. Write the transliteration column. In your own lines, when `~` is present, use the spoken side. Capitalize the first letter of a sentence only. The Farsi in the turn is only this spelling: no Persian letters in it.
-- **Script.** `mature` rows only from the active content file, so practice does not reveal spellings Anki still has locked. Write the script column in everyday spelling, with no vowel marks. In your own lines, use the spoken side of `~`. Questions use `؟`. `می‌` keeps the ZWNJ. The Farsi in the turn is only Persian script. If nothing is mature, say so and stay in transliteration.
+- **Script.** `mature` rows only from the active content file. A word that has dropped below the mature interval stays out of script practice until it is mature again. Write the script column in everyday spelling, with no vowel marks. In your own lines, use the spoken side of `~`. Questions use `؟`. `می‌` keeps the ZWNJ. The Farsi in the turn is only Persian script. If nothing is mature, say so and stay in transliteration.
 
 Grammar rows from `practice_grammar.txt` are always available for endings and particles in both modes. In script mode, still only use a grammar row's script when that grammar row is `mature`, unless they asked to reveal locked script.
 

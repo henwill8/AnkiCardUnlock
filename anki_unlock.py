@@ -7,9 +7,9 @@ and practice_focus.txt (top recent/hard rows).
 
 Suspends a gated card unless its unlock field is exactly 1, and suspends any
 blank front. When every template on a note is locked, Anki still keeps one
-card with a blank front; that card is suspended too. Script unlock is cleared
-when a word drops below the mature interval, and that card is suspended until
-it is mature again.
+card with a blank front; that card is suspended too. Once a vocab script
+card is unlocked it stays unlocked, even if that note later drops below the
+mature interval.
 """
 
 from __future__ import annotations
@@ -574,8 +574,8 @@ def render_learned_vocab(rows: list[tuple], mature_days: int) -> str:
         f"# ready: {ready}\n"
         f"# mature: {mature}\n"
         "# columns: level, transliteration, english, script, tags, first, again\n"
-        "# level mature: both FA-EN cards interval >= mature_days; script unlocked\n"
-        "# level learned: both FA-EN cards are not new; script still locked\n"
+        "# level mature: both FA-EN cards interval >= mature_days\n"
+        "# level learned: both FA-EN cards are not new\n"
         "# first: local date of the earliest review on either FA-EN card\n"
         "# again: local date of the latest Again on either FA-EN card; empty if none\n"
         "# order: newest or most recently failed first (later of first and again)\n"
@@ -668,8 +668,8 @@ def export_deck_package(deck: str, path: Path) -> None:
         raise RuntimeError(f"exportPackage failed for deck {deck!r} -> {path}")
 
 
-def read_notes_from_apkg(path: Path) -> list[tuple[str, list[str], str, str]]:
-    """Return (guid, fields, tags, model_name) rows from an exported package."""
+def read_notes_from_apkg(path: Path) -> list[tuple[str, list[str], str, str, str]]:
+    """Return (guid, fields, tags, model_name, deck_name) rows from an exported package."""
     with zipfile.ZipFile(path) as zf:
         name = (
             "collection.anki21"
@@ -683,9 +683,15 @@ def read_notes_from_apkg(path: Path) -> list[tuple[str, list[str], str, str]]:
         con = sqlite3.connect(db_path)
         models = json.loads(con.execute("SELECT models FROM col").fetchone()[0])
         model_name = {int(mid): m["name"] for mid, m in models.items()}
-        rows: list[tuple[str, list[str], str, str]] = []
-        for mid, guid, flds, tags in con.execute(
-            "SELECT mid, guid, flds, tags FROM notes"
+        decks = json.loads(con.execute("SELECT decks FROM col").fetchone()[0])
+        deck_name = {int(did): d["name"] for did, d in decks.items()}
+        note_deck: dict[int, str] = {}
+        for nid, did in con.execute("SELECT nid, did FROM cards"):
+            if nid not in note_deck:
+                note_deck[int(nid)] = deck_name.get(int(did), "")
+        rows: list[tuple[str, list[str], str, str, str]] = []
+        for nid, mid, guid, flds, tags in con.execute(
+            "SELECT id, mid, guid, flds, tags FROM notes"
         ):
             rows.append(
                 (
@@ -693,36 +699,42 @@ def read_notes_from_apkg(path: Path) -> list[tuple[str, list[str], str, str]]:
                     flds.split("\x1f"),
                     (tags or "").strip(),
                     model_name.get(int(mid), ""),
+                    note_deck.get(int(nid), ""),
                 )
             )
         con.close()
     return rows
 
 
-def render_deck_index(rows: list[tuple[str, list[str], str, str]]) -> str:
+def render_deck_index(rows: list[tuple[str, list[str], str, str, str]]) -> str:
     body_lines: list[str] = []
-    for guid, fields, tags, model in rows:
+    for guid, fields, tags, model, deck in rows:
         if model != VOCAB_MODEL:
             continue
         translit = plain_field(fields[0]) if fields else ""
         english = plain_field(fields[1]) if len(fields) > 1 else ""
         script = plain_field(fields[2]) if len(fields) > 2 else ""
+        unlocked = plain_field(fields[3]) if len(fields) > 3 else ""
+        if unlocked not in ("", "1"):
+            unlocked = ""
         tag_s = " ".join(tags.split())
-        body_lines.append("\t".join([guid, translit, english, script, tag_s]))
-    body_lines.sort(key=lambda line: line.split("\t", 2)[1].casefold())
+        body_lines.append(
+            "\t".join([guid, deck, translit, english, script, unlocked, tag_s])
+        )
+    body_lines.sort(key=lambda line: line.split("\t", 3)[2].casefold())
     header = (
         "# deck_index\n"
         "# source: anki_unlock.py --export-indexes\n"
         f"# notes: {len(body_lines)}\n"
-        "# columns: guid, transliteration, english, script, tags\n"
+        "# columns: guid, deck, transliteration, english, script, ScriptUnlocked, tags\n"
         "# Prefer this file over AnkiConnect notesInfo for sentence generation.\n"
     )
     return header + "".join(line + "\n" for line in body_lines)
 
 
-def render_sentences_index(rows: list[tuple[str, list[str], str, str]]) -> str:
+def render_sentences_index(rows: list[tuple[str, list[str], str, str, str]]) -> str:
     body_lines: list[str] = []
-    for guid, fields, tags, model in rows:
+    for guid, fields, tags, model, _deck in rows:
         if model != SENTENCE_MODEL:
             continue
         translit = plain_field(fields[0]) if fields else ""
@@ -829,30 +841,22 @@ def unlock(
     print(f"Indexed {len(index)} vocab keys ({len(vocab_notes)} notes) from {VOCAB_DECK!r}")
 
     updates: list[dict] = []
-    script_on = script_off = 0
+    script_on = 0
     for info in vocab_notes:
         fmap = info["fields"]
-        if SCRIPT_FIELD not in fmap:
+        if SCRIPT_FIELD not in fmap or not info["mature"]:
             continue
-        current = fmap.get(SCRIPT_FIELD, "")
-        if info["mature"]:
-            if current == "1":
-                continue
-            value = "1"
-            script_on += 1
-        elif current == "1":
-            value = ""
-            script_off += 1
-        else:
+        if fmap.get(SCRIPT_FIELD, "") == "1":
             continue
+        script_on += 1
         updates.append(
             {
                 "action": "updateNoteFields",
-                "params": {"note": {"id": info["noteId"], "fields": {SCRIPT_FIELD: value}}},
+                "params": {"note": {"id": info["noteId"], "fields": {SCRIPT_FIELD: "1"}}},
             }
         )
 
-    print(f"ScriptUnlocked newly set: {script_on}; relocked: {script_off}")
+    print(f"ScriptUnlocked newly set: {script_on}")
 
     sentences: list[dict] = []
     unlocked = script_unlocked = script_relocked = locked = skipped = 0

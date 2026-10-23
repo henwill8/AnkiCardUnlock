@@ -1,5 +1,14 @@
 # Deck conventions
 
+## Vocab deck tree
+
+```text
+Farsi            ← main deck; agent-added vocab goes here
+└── Queue        ← paced backlog
+```
+
+New vocab import rows from this skill use `Farsi`. When fixing a note, keep its current deck. Sentence notes stay in `Farsi Sentences`. Searching or unlocking `deck:"Farsi"` includes `Farsi::Queue`.
+
 ## Tags already in the deck
 
 Use these strings. Do not invent a new hierarchy.
@@ -83,7 +92,7 @@ Use `~` only for these kinds of real differences.
 
 آنها is `anhaa ~ unaa` / `آنها ~ اونا`. The long a at the end is `aa`.
 
-Leave one form when the spoken word uses the same spelling and the same sound. Do not pair a synonym just to fill the slot. جدید and تازه are two words, not a sound shift; keep both only because the note already lists both.
+Leave one form when the spoken word uses the same spelling and the same sound. Do not invent a synonym pair. When two different words share a meaning, join them on one note: `/` if neither is more formal or more colloquial, `~` if one is. جدید and تازه are not a sound shift; they are `jadid / taazeh`.
 
 ## Stems the deck already uses
 

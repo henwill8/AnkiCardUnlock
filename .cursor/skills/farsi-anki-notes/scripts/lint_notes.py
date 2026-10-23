@@ -10,6 +10,7 @@ from pathlib import Path
 
 NONSTANDARD = ("oo", "ee", "â", "ā", "ī", "ū", "ō", "ē", "'", "’")
 FIELD_COUNT = 8
+ALLOWED_DECKS = frozenset({"Farsi", "Farsi::Queue"})
 
 
 def split_rows(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
@@ -58,7 +59,7 @@ def lint(path: Path) -> list[str]:
             errors.append(f"{where}: duplicate guid also on L{seen_guid[guid]}")
         else:
             seen_guid[guid] = lineno
-        if model != "Farsi" or not deck.strip():
+        if model != "Farsi" or deck not in ALLOWED_DECKS:
             errors.append(f"{where}: notetype/deck is {model!r}/{deck!r}")
         if tr != tr.strip() or script != script.strip():
             errors.append(f"{where}: leading or trailing space")

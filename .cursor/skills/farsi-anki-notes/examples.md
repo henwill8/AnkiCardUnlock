@@ -9,7 +9,7 @@ Bar / Up, on, or upon / بر
 → bar / Up, on, or upon / بر / preposition
 
 Jadid ~ Taazeh / New / جدید ~ تازه
-→ jadid ~ taazeh / New / جدید ~ تازه / adjective
+→ jadid / taazeh / New / جدید / تازه / adjective
 
 Yaa / Or / یا
 → yaa / Or / یا / particle particle::connector
@@ -89,10 +89,29 @@ Mishe fardaa berim un otaagh?
 Can we go to that room tomorrow?
 میشه فردا بریم اون اتاق؟
 ClozePrompt: Mishe fardaa berim un ____?
+(Cloze front shows the English + that blanked line, so the blank is cued.)
 tags: diff::3 req::fardaa req::mishe req::otaagh req::raftan req::un theme::plans
 ```
 
-`Salaam, chetori?` is short and people say it constantly, so it is allowed (`diff::1`). A longer line people say all the time is also allowed; tag it `diff::2` or `diff::3` for its length. `Otaagh bozorge.` is short and not something people say, so it is not allowed.
+`Salaam, chetori?` is short and people say it constantly, so it is allowed (`diff::1`). A longer line people say all the time is also allowed; tag it `diff::2` or `diff::3` for its length. `Otaagh bozorge.` is short and not something people say, so it is not allowed. Leave ClozePrompt empty when the English would still allow several Persian fillers.
+
+## Same meaning
+
+جدید and تازه are two words for “new,” and neither is the colloquial form of the other, so the note is `jadid / taazeh` / `جدید / تازه`. ممنون is formal and مرسی is colloquial, so that note stays `mamnun ~ mersi`.
+
+خورشید is formal and آفتاب is the everyday word, and both mean “sun.” Fold them into the older note as `khorshid ~ aaftaab` / `خورشید ~ آفتاب`. Leave the extra note out of the import. If its cards are still new, delete it.
+
+باز / Open stays its own note. Again is a different meaning: `dobaareh / baaz` / `دوباره / باز`.
+
+## Pieces of a new word
+
+`biparvaa` / بی‌پروا is new, and people also say پروا, so add `parvaa` / پروا / Care or caution. `bi-` is already a note, so do not add it again.
+
+دلتنگی is entered as `deltang` / دلتنگ, and `tang` / تنگ is added too. دل is already a note. Do not also keep دلتنگی. Once `zibaa` is a note, do not add زیبایی. The `-i` does not change the meaning enough to be its own card.
+
+`ghadam zadan` is still added. A compound verb stays even when قدم and زدن are already notes.
+
+بردار and بگذار are not new notes. They are the imperative of `bar daashtan > daar` and `gozaashtan > gozaar ~ zaar`.
 
 ## Already done — leave the pattern
 
