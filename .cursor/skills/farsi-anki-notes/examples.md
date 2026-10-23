@@ -107,7 +107,9 @@ tags: diff::3 req::fardaa req::mishe req::otaagh req::raftan req::un theme::plan
 
 `biparvaa` / بی‌پروا is new, and people also say پروا, so add `parvaa` / پروا / Care or caution. `bi-` is already a note, so do not add it again.
 
-دلتنگی is entered as `deltang` / دلتنگ, and `tang` / تنگ is added too. دل is already a note. Do not also keep دلتنگی. Once `zibaa` is a note, do not add زیبایی. The `-i` does not change the meaning enough to be its own card.
+`zakhmi` is not a note. Wounded is the same idea as `zakhm` / زخم / Wound, so the note is the form without `-i`. `bedehkaar` / بدهکار / In debt is the note; بدهکاری is the same idea. `zibaa` / زیبا is the note; زیبایی is the noun from it. دلتنگی is entered as `deltang` / دلتنگ. `tang` / تنگ is added too. دل is already a note.
+
+`ghahveh` / قهوه / Coffee and `ghahvei` / قهوه‌ای / Brown are both notes. Grey is the same kind of split: `khaakestar` / خاکستر and `khaakestari` / خاکستری. `zendaan` / زندان and `zendaani` / زندانی are both notes. Prison and prisoner are not the same idea.
 
 `ghadam zadan` is still added. A compound verb stays even when قدم and زدن are already notes.
 
