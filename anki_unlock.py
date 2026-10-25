@@ -12,8 +12,8 @@ card is unlocked it stays unlocked, even if that note later drops below the
 mature interval. Sentence script unlock is cleared when a required word
 drops below the mature interval, and those cards stay suspended until it is
 mature again. New script cards are spaced evenly through the cards still in
-the new queue, including buried siblings. Those buried siblings and the
-other new cards keep their relative order.
+the new queue, including buried siblings. Each note keeps its positions.
+The cards of a note are shuffled among those positions.
 """
 
 from __future__ import annotations
@@ -455,6 +455,22 @@ def _script_blocks(cards: list[dict]) -> list[list[dict]]:
     return blocks
 
 
+def _shuffle_siblings(sequence: list[dict]) -> list[dict]:
+    """Keep each note's positions. Shuffle which sibling sits in each one."""
+    slots_by_note: dict[int, list[int]] = {}
+    for index, card in enumerate(sequence):
+        slots_by_note.setdefault(card["note"], []).append(index)
+    shuffled = list(sequence)
+    for slots in slots_by_note.values():
+        if len(slots) < 2:
+            continue
+        cards = [sequence[slot] for slot in slots]
+        random.shuffle(cards)
+        for slot, card in zip(slots, cards):
+            shuffled[slot] = card
+    return shuffled
+
+
 def _spread_script_blocks(others: list[dict], scripts: list[dict]) -> list[dict]:
     """Space script-card groups evenly through the other cards.
 
@@ -505,8 +521,9 @@ def _position_group(deck: str) -> str:
 def scatter_new_script_cards(card_ids: list[int]) -> int:
     """Space these script cards evenly through each new-card position list.
 
-    Buried siblings and the other new cards keep their relative order. Script
-    cards are placed in the gaps through that whole list.
+    Buried siblings and the other new cards keep their positions. Script
+    cards are placed in the gaps through that whole list. Every note's cards
+    are then shuffled among that note's positions.
     """
     moving = set(dict.fromkeys(card_ids))
     if not moving:
@@ -527,7 +544,7 @@ def scatter_new_script_cards(card_ids: list[int]) -> int:
         scripts = [card for card in cards if card["id"] in moving and card["queue"] == 0]
         if not scripts:
             continue
-        sequence = _spread_script_blocks(others, scripts)
+        sequence = _shuffle_siblings(_spread_script_blocks(others, scripts))
         ordered = [card["id"] for card in sequence]
         invoke(
             "repositionNewCards",
