@@ -26,9 +26,21 @@ def _apply(legacy, params):
     service = legacy.service
     if service is None:
         raise Exception("collection is not available")
-    out = service.col.sched.reposition_new_cards(ids, start, 1, False, False)
-    service.change(out)
-    return len(ids)
+    col = service.col
+    cards = []
+    for cid, pos in zip(ids, places):
+        card = col.get_card(cid)
+        if int(card.type) != 0:
+            continue
+        card.due = pos
+        cards.append(card)
+    if not cards:
+        return 0
+    undo = col.add_custom_undo_entry("Reposition new cards")
+    changes = col.update_cards(cards)
+    col.merge_undo_entries(undo)
+    service.change(changes)
+    return len(cards)
 
 
 def _reposition_new_cards(self, cards, positions):

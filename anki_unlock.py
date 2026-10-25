@@ -12,8 +12,9 @@ card is unlocked it stays unlocked, even if that note later drops below the
 mature interval. Sentence script unlock is cleared when a required word
 drops below the mature interval, and those cards stay suspended until it is
 mature again. New script cards are spaced evenly through the cards still in
-the new queue, including buried siblings. Each note keeps its positions.
-The cards of a note are shuffled among those positions.
+the new queue, including buried siblings. Non-script notes keep their
+order. Siblings that shared one new-card number get separate numbers, and
+the cards of a note are shuffled among that note's numbers.
 """
 
 from __future__ import annotations
@@ -521,9 +522,10 @@ def _position_group(deck: str) -> str:
 def scatter_new_script_cards(card_ids: list[int]) -> int:
     """Space these script cards evenly through each new-card position list.
 
-    Buried siblings and the other new cards keep their positions. Script
-    cards are placed in the gaps through that whole list. Every note's cards
-    are then shuffled among that note's positions.
+    Buried siblings and the other new cards keep their note order. Script
+    cards are placed in the gaps through that whole list. Each card then
+    gets its own new-card number, and the cards of a note are shuffled
+    among that note's numbers.
     """
     moving = set(dict.fromkeys(card_ids))
     if not moving:
