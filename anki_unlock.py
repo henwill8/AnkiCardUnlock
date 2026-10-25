@@ -12,8 +12,8 @@ card is unlocked it stays unlocked, even if that note later drops below the
 mature interval. Sentence script unlock is cleared when a required word
 drops below the mature interval, and those cards stay suspended until it is
 mature again. New script cards are spaced evenly through the cards still in
-the new queue. Buried siblings stay at the front, in their current order.
-Other new cards keep their order too.
+the new queue, including buried siblings. Those buried siblings and the
+other new cards keep their relative order.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import random
 import re
 import sqlite3
@@ -53,6 +54,7 @@ PRACTICE_FOCUS_OUT = ROOT / "practice_focus.txt"
 DECK_INDEX_OUT = ROOT / "deck_index.txt"
 SENTENCES_INDEX_OUT = ROOT / "sentences_index.txt"
 CACHE_DIR = ROOT / ".cache"
+REPOSITION_ADDON = "anki_unlock_reposition"
 FOCUS_LIMIT = 40
 GRAMMAR_TAG_MARKERS = (
     "grammar",
@@ -489,8 +491,23 @@ def _spread_script_blocks(others: list[dict], scripts: list[dict]) -> list[dict]
     return sequence
 
 
+def _position_group(deck: str) -> str:
+    """Farsi and Farsi::Queue share one new-card position list.
+
+    That deck gathers new cards by ascending position, so a low position in
+    either deck is the same queue. Other decks keep their own positions.
+    """
+    if deck == VOCAB_DECK or deck.startswith(VOCAB_DECK + "::"):
+        return VOCAB_DECK
+    return deck
+
+
 def scatter_new_script_cards(card_ids: list[int]) -> int:
-    """Space these script cards evenly through each deck's new queue."""
+    """Space these script cards evenly through each new-card position list.
+
+    Buried siblings and the other new cards keep their relative order. Script
+    cards are placed in the gaps through that whole list.
+    """
     moving = set(dict.fromkeys(card_ids))
     if not moving:
         return 0
@@ -502,32 +519,49 @@ def scatter_new_script_cards(card_ids: list[int]) -> int:
         ),
     ) or []
     records = _queue_cards(list(dict.fromkeys([*found, *moving])))
-    by_deck: dict[str, list[dict]] = {}
+    by_group: dict[str, list[dict]] = {}
     for card in records:
-        by_deck.setdefault(card["deck"], []).append(card)
-    ordered: list[int] = []
-    positions: list[int] = []
-    order_key = lambda card: (card["due"], card["ord"], card["id"])
-    for cards in by_deck.values():
-        buried = sorted(
-            (
-                card
-                for card in cards
-                if card["queue"] in (-2, -3) and card["id"] not in moving
-            ),
-            key=order_key,
-        )
-        others = [card for card in cards if card["queue"] == 0 and card["id"] not in moving]
+        by_group.setdefault(_position_group(card["deck"]), []).append(card)
+    for cards in by_group.values():
+        others = [card for card in cards if card["id"] not in moving or card["queue"] != 0]
         scripts = [card for card in cards if card["id"] in moving and card["queue"] == 0]
         if not scripts:
             continue
-        sequence = buried + _spread_script_blocks(others, scripts)
-        for due, card in enumerate(sequence):
-            ordered.append(card["id"])
-            positions.append(due)
-    if ordered:
-        invoke("repositionNewCards", cards=ordered, positions=positions)
+        sequence = _spread_script_blocks(others, scripts)
+        ordered = [card["id"] for card in sequence]
+        invoke(
+            "repositionNewCards",
+            cards=ordered,
+            positions=list(range(len(ordered))),
+        )
     return len(moving)
+
+
+def ensure_reposition_addon() -> None:
+    """Install the addon AnkiConnect needs in order to reorder new cards."""
+    base = os.environ.get("ANKI_BASE")
+    if base:
+        addons = Path(base) / "addons21"
+    else:
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            return
+        addons = Path(appdata) / "Anki2" / "addons21"
+    src = ROOT / "anki_addon" / REPOSITION_ADDON / "__init__.py"
+    if not addons.is_dir() or not src.is_file():
+        return
+    dest = addons / REPOSITION_ADDON
+    dest.mkdir(exist_ok=True)
+    data = src.read_bytes()
+    target = dest / "__init__.py"
+    if not target.is_file() or target.read_bytes() != data:
+        target.write_bytes(data)
+    meta = dest / "meta.json"
+    if not meta.is_file():
+        meta.write_text(
+            '{"name": "Anki Unlock: reposition new cards", "disabled": false}\n',
+            encoding="utf-8",
+        )
 
 
 def sync_card_visibility(
@@ -583,14 +617,17 @@ def sync_card_visibility(
         f"fully locked notes={fully_locked}"
     )
     if script_new:
+        ensure_reposition_addon()
         try:
             moved = scatter_new_script_cards(script_new)
         except RuntimeError as exc:
-            if "unsupported action" not in str(exc):
+            if "unsupported action" not in str(exc).lower():
                 raise
             print(
                 "New script cards were not repositioned. "
-                "Restart Anki, then run this script again."
+                "AnkiConnect has no reposition action, so the "
+                "anki_unlock_reposition addon was installed. "
+                "Restart Anki once so it loads, then run this script again."
             )
         else:
             print(f"New script cards repositioned: {moved}")
