@@ -44,9 +44,11 @@ Ruye ~ ru / On or on top of /  روی ~ رو
 
 ## Verb compound
 
+`fekr` is already a note. `fekr kardan` is the same idea and the same root, so it is written into that note's verb slot. The spelling of the slot is:
+
 ```text
 Fekr Kardan > Kon / To think / فکر کردن > کن
-→ fekr kardan &gt; kon / To think / فکر کردن &gt; کن / Verb
+→ fekr kardan &gt; kon / To think / فکر کردن &gt; کن
 ```
 
 ## Spoken form was missing
@@ -111,7 +113,7 @@ tags: diff::3 req::fardaa req::mishe req::otaagh req::raftan req::un theme::plan
 
 `ghahveh` / قهوه / Coffee and `ghahvei` / قهوه‌ای / Brown are both notes. Grey is the same kind of split: `khaakestar` / خاکستر and `khaakestari` / خاکستری. `zendaan` / زندان and `zendaani` / زندانی are both notes. Prison and prisoner are not the same idea.
 
-`ghadam zadan` is still added. A compound verb stays even when قدم and زدن are already notes.
+`ghadam zadan` is written onto the `ghadam` note. It is the same idea and the same root. `raftan` stays its own note, in the verb slot, because it has no base. `tark` is the base of `tark kardan`; the noun is the main fields and the verb is the verb slot. `baar` (time or turn) does not join `baaridan`; `baaraan` does.
 
 بردار and بگذار are not new notes. They are the imperative of `bar daashtan > daar` and `gozaashtan > gozaar ~ zaar`.
 

@@ -42,6 +42,46 @@ SENTENCE_DECK = "Farsi Sentences"
 SCRIPT_FIELD = "ScriptUnlocked"
 SENTENCE_FIELD = "SentenceUnlocked"
 SENTENCE_SCRIPT_FIELD = "SentenceScriptUnlocked"
+VERB_SCRIPT_FIELD = "VerbScriptUnlocked"
+VERB2_SCRIPT_FIELD = "Verb2ScriptUnlocked"
+SCRIPT_CARD_FIELDS = {
+    SCRIPT_FIELD,
+    VERB_SCRIPT_FIELD,
+    VERB2_SCRIPT_FIELD,
+    SENTENCE_SCRIPT_FIELD,
+}
+LIGHT_VERBS = {
+    "kardan",
+    "shodan",
+    "zadan",
+    "daadan",
+    "daashtan",
+    "gereftan",
+    "khordan",
+    "keshidan",
+    "goftan",
+}
+# Same root, different idea. The verb stays its own note.
+PLAIN_VERB_DENY = {
+    ("charkh", "charkhidan"),
+    ("baar", "baaridan"),
+}
+VERB_SLOTS = (
+    (
+        "Verb Transliteration",
+        "Verb English",
+        "Verb Script",
+        VERB_SCRIPT_FIELD,
+        {0: 3, 1: 4, 2: 5},
+    ),
+    (
+        "Verb2 Transliteration",
+        "Verb2 English",
+        "Verb2 Script",
+        VERB2_SCRIPT_FIELD,
+        {0: 6, 1: 7, 2: 8},
+    ),
+)
 MATURE_INTERVAL_DEFAULT = 21
 MISSING_REPORT_LIMIT = 8
 AGAIN_EASE = 1
@@ -65,13 +105,13 @@ GRAMMAR_TAG_MARKERS = (
 )
 
 
-def invoke(action: str, **params):
+def invoke(action: str, timeout: int = 30, **params):
     payload = json.dumps({"action": action, "version": 6, "params": params}).encode()
     req = urllib.request.Request(
         ANKI_URL, data=payload, headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.load(resp)
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         sys.exit(
@@ -291,6 +331,10 @@ def showing_ords(fronts: list[str], fields: dict[str, str]) -> set[int]:
 def template_gate_field(model: str, name: str, html_sides: str) -> str | None:
     lowered = name.lower()
     if model == VOCAB_MODEL:
+        if VERB2_SCRIPT_FIELD in html_sides:
+            return VERB2_SCRIPT_FIELD
+        if VERB_SCRIPT_FIELD in html_sides:
+            return VERB_SCRIPT_FIELD
         if SCRIPT_FIELD in html_sides or "script" in lowered:
             return SCRIPT_FIELD
         return None
@@ -397,7 +441,7 @@ def new_script_card_ids(
             card = cards_by_id.get(cid)
             if not card or cid in suspended:
                 continue
-            if ord_gates.get(card.get("ord", 0)) not in (SCRIPT_FIELD, SENTENCE_SCRIPT_FIELD):
+            if ord_gates.get(card.get("ord", 0)) not in SCRIPT_CARD_FIELDS:
                 continue
             if card.get("type") != 0:
                 continue
@@ -655,15 +699,144 @@ def sync_card_visibility(
 def ensure_field(model: str, field: str, existing: list[str] | None = None) -> list[str]:
     names = existing if existing is not None else invoke("modelFieldNames", modelName=model)
     if field not in names:
-        invoke("modelFieldAdd", modelName=model, fieldName=field)
+        invoke("modelFieldAdd", modelName=model, fieldName=field, index=None)
         print(f"Added field {field!r} to model {model!r}")
         names = list(names) + [field]
     return names
 
 
+def _conditional_card(outer: str, front: str, back: str) -> dict[str, str]:
+    return {
+        "Front": "{{#" + outer + "}}\n" + front + "{{/" + outer + "}}",
+        "Back": "{{#" + outer + "}}\n" + back + "{{/" + outer + "}}",
+    }
+
+
+def _verb_template_sides(
+    translit: str, english: str, script: str
+) -> list[tuple[str, dict[str, str]]]:
+    fa_name = "Verb2 FA -> EN" if translit.startswith("Verb2") else "Verb FA -> EN"
+    en_name = "Verb2 EN -> FA" if translit.startswith("Verb2") else "Verb EN -> FA"
+    script_name = (
+        "Verb2 Script Writing" if translit.startswith("Verb2") else "Verb Script Writing"
+    )
+    fa_body = (
+        "{{#" + script + "}}\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        '  <span class="text">\n'
+        '    <span dir="rtl" class="farsi-script">{{' + script + "}}</span>\n"
+        '    <div class="hints">\n'
+        "      <div>{{hint:" + translit + "}}</div>\n"
+        "    </div>\n"
+        "  </span>\n"
+        "</div>\n"
+        "{{/" + script + "}}\n"
+        "{{^" + script + "}}\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        '  <span class="text">\n'
+        '    <span class="farsi-script">{{' + translit + "}}</span>\n"
+        "  </span>\n"
+        "</div>\n"
+        "{{/" + script + "}}"
+    )
+    en_line = (
+        '<div class="en"><span class="label">EN</span>'
+        '<span class="text">{{' + english + "}}</span></div>\n"
+    )
+    fa_back = (
+        "{{FrontSide}}\n<hr id=answer>\n" + en_line
+    )
+    en_front = en_line
+    en_back = (
+        "{{FrontSide}}\n<hr id=answer>\n"
+        "{{#" + script + "}}\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        '  <span class="text">\n'
+        '    <span dir="rtl" class="farsi-script">{{' + script + "}}</span>\n"
+        "    <br><br>\n"
+        "    {{hint:" + translit + "}}\n"
+        "  </span>\n"
+        "</div>\n"
+        "{{/" + script + "}}\n"
+        "{{^" + script + "}}\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        '  <span class="text">\n'
+        '    <span class="farsi-script">{{' + translit + "}}</span>\n"
+        "  </span>\n"
+        "</div>\n"
+        "{{/" + script + "}}"
+    )
+    script_front = (
+        en_line
+        + '<div class="prompt">Type the Farsi script</div>\n'
+        + "{{type:" + script + "}}"
+    )
+    script_back = (
+        "{{FrontSide}}\n<hr id=answer>\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        '  <span class="text">\n'
+        '    <span class="farsi-script" dir="rtl">{{' + script + "}}</span>\n"
+        "  </span>\n"
+        "</div>\n"
+        '<div class="fa">\n'
+        '  <span class="label">FA</span>\n'
+        "  <span class=\"text\">{{" + translit + "}}</span>\n"
+        "</div>\n"
+    )
+    unlock = VERB2_SCRIPT_FIELD if translit.startswith("Verb2") else VERB_SCRIPT_FIELD
+    return [
+        (fa_name, _conditional_card(translit, fa_body, fa_back)),
+        (en_name, _conditional_card(english, en_front, en_back)),
+        (script_name, _conditional_card(unlock, script_front, script_back)),
+    ]
+
+
+def ensure_verb_model() -> None:
+    """Append two verb slots. Empty slots add no cards."""
+    names = invoke("modelFieldNames", modelName=VOCAB_MODEL) or []
+    wanted = [name for slot in VERB_SLOTS for name in slot[:4]]
+    if names[:4] != [
+        "Farsi Transliteration",
+        "English",
+        "Farsi Script",
+        SCRIPT_FIELD,
+    ]:
+        raise RuntimeError(f"Unexpected Farsi fields: {names}")
+    for name in wanted:
+        names = ensure_field(VOCAB_MODEL, name, names)
+    if names != [
+        "Farsi Transliteration",
+        "English",
+        "Farsi Script",
+        SCRIPT_FIELD,
+        *wanted,
+    ]:
+        raise RuntimeError(f"Verb fields are not at the end: {names}")
+    existing = set((invoke("modelTemplates", modelName=VOCAB_MODEL) or {}))
+    sides = _verb_template_sides(*VERB_SLOTS[0][:3]) + _verb_template_sides(
+        *VERB_SLOTS[1][:3]
+    )
+    for name, card in sides:
+        if name in existing:
+            continue
+        invoke(
+            "modelTemplateAdd",
+            timeout=120,
+            modelName=VOCAB_MODEL,
+            template={"Name": name, "Front": card["Front"], "Back": card["Back"]},
+        )
+        print(f"Added template {name!r}")
+
+
 def ensure_unlock_fields(models: list[str] | None = None) -> list[str]:
     models = models if models is not None else invoke("modelNames")
     ensure_field(VOCAB_MODEL, SCRIPT_FIELD)
+    ensure_verb_model()
     if SENTENCE_MODEL in models:
         sentence_fields = invoke("modelFieldNames", modelName=SENTENCE_MODEL)
         sentence_fields = ensure_field(SENTENCE_MODEL, SENTENCE_FIELD, sentence_fields)
@@ -681,7 +854,20 @@ def persian_field_name(fmap: dict) -> str:
     ):
         if candidate in fmap:
             return candidate
-    skip = {SCRIPT_FIELD, SENTENCE_FIELD, SENTENCE_SCRIPT_FIELD, "Farsi Script"}
+    skip = {
+        SCRIPT_FIELD,
+        SENTENCE_FIELD,
+        SENTENCE_SCRIPT_FIELD,
+        VERB_SCRIPT_FIELD,
+        VERB2_SCRIPT_FIELD,
+        "Farsi Script",
+        "Verb Script",
+        "Verb2 Script",
+        "Verb English",
+        "Verb2 English",
+        "Verb Transliteration",
+        "Verb2 Transliteration",
+    }
     for k in fmap:
         if k not in skip:
             return k
@@ -702,21 +888,26 @@ def build_vocab_index(mature_days: int) -> tuple[dict[str, dict], list[dict]]:
     cards_by_id = fetch_cards_by_id(all_card_ids)
 
     index: dict[str, dict] = {}
-    unique: dict[int, dict] = {}
+    unique: dict[tuple[int, str], dict] = {}
 
-    for note in notes:
-        nid = note["noteId"]
-        fmap = field_map(note)
-        keys = normalize_key(fmap.get(persian_field_name(fmap), ""))
-
-        cards = [cards_by_id[cid] for cid in (note.get("cards") or []) if cid in cards_by_id]
-        # FA↔EN are ord 0/1; ignore later script cards for readiness/maturity
-        main_cards = [c for c in cards if c.get("ord", 0) in (0, 1)]
+    def add_slot(
+        note: dict,
+        fmap: dict,
+        cards: list[dict],
+        ords: tuple[int, int],
+        translit_field: str,
+        english_field: str,
+        script_field: str,
+        unlock_field: str,
+    ) -> None:
+        translit = fmap.get(translit_field, "")
+        if not plain_field(translit):
+            return
+        main_cards = [c for c in cards if c.get("ord", 0) in ords]
         if not main_cards:
-            continue
-
+            return
         info = {
-            "noteId": nid,
+            "noteId": note["noteId"],
             "ready": all(c.get("type", 0) != 0 for c in main_cards),
             "mature": len(main_cards) >= 2
             and all(c.get("interval", 0) >= mature_days for c in main_cards),
@@ -725,12 +916,47 @@ def build_vocab_index(mature_days: int) -> tuple[dict[str, dict], list[dict]]:
             "mainCardIds": [c["cardId"] for c in main_cards],
             "first_ms": 0,
             "again_ms": 0,
+            "unlock_field": unlock_field,
+            "source_fields": (translit_field, english_field, script_field),
         }
-        unique[nid] = info
-        for k in keys:
-            # First key wins unless replacing a not-yet-ready entry with a ready one
+        unique[(note["noteId"], unlock_field)] = info
+        for k in normalize_key(translit):
             if k not in index or (not index[k]["ready"] and info["ready"]):
                 index[k] = info
+
+    for note in notes:
+        fmap = field_map(note)
+        cards = [cards_by_id[cid] for cid in (note.get("cards") or []) if cid in cards_by_id]
+        add_slot(
+            note,
+            fmap,
+            cards,
+            (0, 1),
+            "Farsi Transliteration",
+            "English",
+            "Farsi Script",
+            SCRIPT_FIELD,
+        )
+        add_slot(
+            note,
+            fmap,
+            cards,
+            (3, 4),
+            "Verb Transliteration",
+            "Verb English",
+            "Verb Script",
+            VERB_SCRIPT_FIELD,
+        )
+        add_slot(
+            note,
+            fmap,
+            cards,
+            (6, 7),
+            "Verb2 Transliteration",
+            "Verb2 English",
+            "Verb2 Script",
+            VERB2_SCRIPT_FIELD,
+        )
 
     ready_ids = [
         cid
@@ -770,20 +996,16 @@ def learned_row(info: dict) -> tuple[str, str, str, str, str, str, str, int] | N
     if not info.get("ready"):
         return None
     fmap = info["fields"]
-    trans_name = persian_field_name(fmap)
-    translit = plain_field(fmap.get(trans_name, ""))
+    translit_field, english_field, script_field = info.get("source_fields") or (
+        persian_field_name(fmap),
+        "English",
+        "Farsi Script",
+    )
+    translit = plain_field(fmap.get(translit_field, ""))
     if not translit:
         return None
-    english = ""
-    for name in ("English", "Meaning", "Gloss"):
-        if name in fmap and name != trans_name:
-            english = plain_field(fmap[name])
-            break
-    script = ""
-    for name in ("Farsi", "Farsi Script", "Persian"):
-        if name in fmap and name != trans_name:
-            script = plain_field(fmap[name])
-            break
+    english = plain_field(fmap.get(english_field, ""))
+    script = plain_field(fmap.get(script_field, ""))
     tags = " ".join(t.strip() for t in info.get("tags") or [] if t.strip())
     level = "mature" if info.get("mature") else "learned"
     first_ms = int(info.get("first_ms") or 0)
@@ -959,16 +1181,24 @@ def render_deck_index(rows: list[tuple[str, list[str], str, str, str]]) -> str:
         unlocked = plain_field(fields[3]) if len(fields) > 3 else ""
         if unlocked not in ("", "1"):
             unlocked = ""
+        verb = [plain_field(fields[i]) if len(fields) > i else "" for i in range(4, 12)]
         tag_s = " ".join(tags.split())
         body_lines.append(
-            "\t".join([guid, deck, translit, english, script, unlocked, tag_s])
+            "\t".join([guid, deck, translit, english, script, unlocked, *verb, tag_s])
         )
-    body_lines.sort(key=lambda line: line.split("\t", 3)[2].casefold())
+
+    def sort_key(line: str) -> str:
+        parts = line.split("\t")
+        return (parts[2] or (parts[6] if len(parts) > 6 else "")).casefold()
+
+    body_lines.sort(key=sort_key)
     header = (
         "# deck_index\n"
         "# source: anki_unlock.py --export-indexes\n"
         f"# notes: {len(body_lines)}\n"
-        "# columns: guid, deck, transliteration, english, script, ScriptUnlocked, tags\n"
+        "# columns: guid, deck, transliteration, english, script, ScriptUnlocked, "
+        "verb_transliteration, verb_english, verb_script, VerbScriptUnlocked, "
+        "verb2_transliteration, verb2_english, verb2_script, Verb2ScriptUnlocked, tags\n"
         "# Prefer this file over AnkiConnect notesInfo for sentence generation.\n"
     )
     return header + "".join(line + "\n" for line in body_lines)
@@ -1086,15 +1316,16 @@ def unlock(
     script_on = 0
     for info in vocab_notes:
         fmap = info["fields"]
-        if SCRIPT_FIELD not in fmap or not info["mature"]:
+        unlock_field = info.get("unlock_field") or SCRIPT_FIELD
+        if unlock_field not in fmap or not info["mature"]:
             continue
-        if fmap.get(SCRIPT_FIELD, "") == "1":
+        if fmap.get(unlock_field, "") == "1":
             continue
         script_on += 1
         updates.append(
             {
                 "action": "updateNoteFields",
-                "params": {"note": {"id": info["noteId"], "fields": {SCRIPT_FIELD: "1"}}},
+                "params": {"note": {"id": info["noteId"], "fields": {unlock_field: "1"}}},
             }
         )
 
@@ -1167,6 +1398,514 @@ def unlock(
     print("Done. Sync Anki when ready so mobile/web get unlock fields.")
 
 
+CONTENT_POS = {"noun", "adjective"}
+
+
+def _say(line: str) -> None:
+    sys.stdout.buffer.write((line + "\n").encode("utf-8", "replace"))
+
+
+def _pos(tags: list[str]) -> set[str]:
+    return {tag.split("::", 1)[0].casefold() for tag in tags}
+
+
+def _first_piece(text: str) -> str:
+    raw = html.unescape(text or "").strip().lower()
+    raw = re.sub(r"<[^>]+>", "", raw)
+    raw = re.split(r"[~>]", raw, maxsplit=1)[0]
+    raw = re.sub(r"\([^)]*\)", " ", raw)
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def _base_heads(text: str) -> list[str]:
+    raw = html.unescape(text or "").strip().lower()
+    raw = re.sub(r"<[^>]+>", "", raw)
+    raw = re.split(r">", raw, maxsplit=1)[0]
+    heads: list[str] = []
+    for alt in raw.split("~"):
+        alt = re.sub(r"\([^)]*\)", " ", alt)
+        alt = re.sub(r"\s+", " ", alt).strip()
+        if not alt or " " in alt or "/" in alt:
+            continue
+        head = alt.split(" ")[0]
+        if head and head not in heads:
+            heads.append(head)
+    return heads
+
+
+def _present_stem(text: str) -> str:
+    raw = html.unescape(text or "").strip().lower()
+    raw = re.sub(r"<[^>]+>", "", raw)
+    if ">" not in raw:
+        return ""
+    stem = re.split(r"[~/]", raw.split(">", 1)[1], maxsplit=1)[0]
+    stem = re.sub(r"\([^)]*\)", " ", stem)
+    stem = re.sub(r"\s+", " ", stem).strip()
+    return stem.split(" ")[0] if stem else ""
+
+
+def _brief(note: dict) -> str:
+    return f"{note['tr']} [{note['en']}]"
+
+
+def _choose_base(
+    head: str, grouped: dict[str, list[dict]], skip_id: int
+) -> tuple[dict | None, list[dict], bool]:
+    notes = [note for note in grouped.get(head, []) if note["id"] != skip_id]
+    content = [note for note in notes if _pos(note["tags"]) & CONTENT_POS]
+    if not content:
+        return None, notes, False
+
+    def rank(note: dict) -> int:
+        return 0 if "noun" in _pos(note["tags"]) else 1
+
+    content.sort(key=lambda note: (rank(note), note["id"]))
+    best = rank(content[0])
+    tied = [note for note in content if rank(note) == best]
+    if len(tied) > 1:
+        return None, notes, True
+    chosen = content[0]
+    left = [note for note in notes if note["id"] != chosen["id"]]
+    return chosen, left, False
+
+
+def _load_vocab_records() -> list[dict]:
+    notes = fetch_notes(f'deck:"{VOCAB_DECK}" note:"{VOCAB_MODEL}"')
+    card_ids = [cid for note in notes for cid in (note.get("cards") or [])]
+    cards_by_id = fetch_cards_by_id(card_ids)
+    records = []
+    for note in notes:
+        fmap = field_map(note)
+        tr = plain_field(fmap.get("Farsi Transliteration", ""))
+        records.append(
+            {
+                "id": int(note["noteId"]),
+                "tr": tr,
+                "en": plain_field(fmap.get("English", "")),
+                "script": plain_field(fmap.get("Farsi Script", "")),
+                "unlock": plain_field(fmap.get(SCRIPT_FIELD, "")),
+                "tags": list(note.get("tags") or []),
+                "fields": fmap,
+                "cards": [
+                    cards_by_id[cid]
+                    for cid in (note.get("cards") or [])
+                    if cid in cards_by_id
+                ],
+                "head": (_base_heads(tr) or [""])[0],
+                "heads": _base_heads(tr),
+                "piece": _first_piece(tr),
+            }
+        )
+    return records
+
+
+def plan_verb_merges() -> dict:
+    """Pair a verb with the noun or adjective of the same root and the same idea."""
+    records = _load_vocab_records()
+    grouped: dict[str, list[dict]] = {}
+    for note in records:
+        for head in note["heads"]:
+            bucket = grouped.setdefault(head, [])
+            if note not in bucket:
+                bucket.append(note)
+
+    pending: dict[int, list[dict]] = {}
+    lines: list[str] = []
+
+    def take(verb: dict, chosen: dict, left: list[dict], why: str) -> None:
+        pending.setdefault(chosen["id"], []).append(
+            {"verb": verb, "left": left, "why": why}
+        )
+
+    for verb in records:
+        if "verb" not in _pos(verb["tags"]):
+            continue
+        tokens = verb["piece"].split(" ") if verb["piece"] else []
+        if len(tokens) >= 2:
+            head = tokens[0]
+            chosen, left, ambiguous = _choose_base(head, grouped, verb["id"])
+            if (
+                chosen is None
+                and not ambiguous
+                and not left
+                and head.endswith("i")
+                and len(head) > 2
+            ):
+                chosen, left, ambiguous = _choose_base(head[:-1], grouped, verb["id"])
+            if ambiguous:
+                names = ", ".join(_brief(note) for note in left)
+                lines.append(f"SKIP\t{verb['tr']}\tambiguous base {tokens[0]}: {names}")
+                continue
+            if chosen is None:
+                if left:
+                    names = ", ".join(_brief(note) for note in left)
+                    lines.append(
+                        f"SKIP\t{verb['tr']}\tfunction word is not the base ({names})"
+                    )
+                else:
+                    lines.append(f"SKIP\t{verb['tr']}\tno paired note")
+                continue
+            if left:
+                names = ", ".join(_brief(note) for note in left)
+                lines.append(f"CHOICE\t{verb['tr']}\t{_brief(chosen)}\talso {names}")
+            take(verb, chosen, left, "light")
+            continue
+        if len(tokens) != 1 or tokens[0] in LIGHT_VERBS:
+            continue
+        infinitive = tokens[0]
+        stem = _present_stem(verb["tr"])
+        found: list[tuple[dict, list[dict]]] = []
+        denied: list[str] = []
+        blocked = False
+        for head in grouped:
+            suffix = infinitive in (head + "idan", head + "dan")
+            from_stem = bool(stem) and head in (stem + "aan", stem + "un")
+            if not suffix and not from_stem:
+                continue
+            if (head, infinitive) in PLAIN_VERB_DENY:
+                denied.append(head)
+                continue
+            chosen, left, ambiguous = _choose_base(head, grouped, verb["id"])
+            if ambiguous:
+                names = ", ".join(_brief(note) for note in left)
+                lines.append(f"SKIP\t{verb['tr']}\tambiguous base {head}: {names}")
+                blocked = True
+                break
+            if chosen is not None:
+                found.append((chosen, left))
+        if blocked:
+            continue
+        if not found:
+            if denied:
+                lines.append(
+                    f"SKIP\t{verb['tr']}\tsame root, different idea ({', '.join(denied)})"
+                )
+            continue
+        chosen_ids = {note["id"] for note, _left in found}
+        if len(chosen_ids) != 1:
+            names = ", ".join(_brief(note) for note, _left in found)
+            lines.append(f"SKIP\t{verb['tr']}\tmore than one base ({names})")
+            continue
+        chosen, left = found[0]
+        extra = list(left)
+        for head in denied:
+            extra.extend(
+                note for note in grouped.get(head, []) if note["id"] != verb["id"]
+            )
+        if extra:
+            names = ", ".join(_brief(note) for note in extra)
+            lines.append(f"CHOICE\t{verb['tr']}\t{_brief(chosen)}\talso {names}")
+        take(verb, chosen, extra, "plain")
+
+    by_id = {note["id"]: note for note in records}
+    merges = []
+    moves = []
+    delete_ids = []
+    for base_id, items in sorted(pending.items()):
+        base = by_id[base_id]
+        items.sort(key=lambda item: item["verb"]["id"])
+        occupied = {card.get("ord") for card in base["cards"]}
+        for slot_i, (tr_name, en_name, script_name, unlock_name, ord_map) in enumerate(
+            VERB_SLOTS, start=1
+        ):
+            if plain_field(base["fields"].get(tr_name, "")):
+                continue
+            if not items:
+                break
+            item = items[0]
+            verb = item["verb"]
+            unknown = [card for card in verb["cards"] if card.get("ord") not in ord_map]
+            if unknown:
+                ords = ", ".join(str(card.get("ord")) for card in unknown)
+                lines.append(f"SKIP\t{verb['tr']}\tunexpected card ord {ords}")
+                items.pop(0)
+                continue
+            targets = [ord_map[card.get("ord")] for card in verb["cards"]]
+            if any(target in occupied for target in targets):
+                lines.append(f"SKIP\t{verb['tr']}\ttarget card already exists")
+                items.pop(0)
+                continue
+            items.pop(0)
+            occupied.update(targets)
+            slot_fields = {
+                tr_name: verb["fields"].get("Farsi Transliteration", ""),
+                en_name: verb["fields"].get("English", ""),
+                script_name: verb["fields"].get("Farsi Script", ""),
+                unlock_name: verb["fields"].get(SCRIPT_FIELD, ""),
+            }
+            for card in verb["cards"]:
+                new_ord = ord_map[card.get("ord")]
+                moves.append(
+                    {"card": card["cardId"], "note": base_id, "ord": new_ord}
+                )
+                lines.append(
+                    "MERGE\t"
+                    f"slot {slot_i}\t{base['tr']}\t<=\t{verb['tr']}\t"
+                    f"card {card['cardId']} ord {card.get('ord')}->{new_ord} "
+                    f"ivl {card.get('interval')} due {card.get('due')}"
+                )
+            merges.append(
+                {
+                    "base": base_id,
+                    "verb": verb["id"],
+                    "slot": slot_i,
+                    "fields": slot_fields,
+                    "tags": verb["tags"],
+                    "cards": [
+                        (card["cardId"], card.get("interval"), card.get("due"), ord_map[card.get("ord")])
+                        for card in verb["cards"]
+                    ],
+                }
+            )
+            delete_ids.append(verb["id"])
+        for item in items:
+            lines.append(
+                f"SKIP\t{item['verb']['tr']}\tthird verb on {base['tr']} stays its own note"
+            )
+
+    edits: dict[int, dict] = {}
+    for merge in merges:
+        edit = edits.setdefault(
+            merge["base"], {"id": merge["base"], "fields": {}, "tags": []}
+        )
+        edit["fields"].update(merge["fields"])
+        for tag in merge["tags"]:
+            if tag not in edit["tags"]:
+                edit["tags"].append(tag)
+    note_edits = list(edits.values())
+    return {
+        "lines": lines,
+        "moves": moves,
+        "notes": note_edits,
+        "delete": delete_ids,
+        "checks": merges,
+    }
+
+
+def merge_related_verbs(apply: bool) -> None:
+    if apply:
+        ensure_verb_model()
+        ensure_reposition_addon()
+    plan = plan_verb_merges()
+    for line in plan["lines"]:
+        _say(line)
+    _say(
+        f"{len(plan['checks'])} verbs, {len(plan['moves'])} cards, "
+        f"{len(plan['delete'])} notes"
+    )
+    if not apply:
+        _say("Dry run. Nothing written.")
+        return
+    if not plan["moves"]:
+        _say("Nothing to merge.")
+        return
+    result = invoke(
+        "mergeRelatedVerbs",
+        timeout=120,
+        moves=plan["moves"],
+        edits=plan["notes"],
+        delete=plan["delete"],
+    )
+    _say(f"Merged {result}")
+    cards = fetch_cards_by_id([move["card"] for move in plan["moves"]])
+    problems = []
+    for merge in plan["checks"]:
+        for card_id, interval, due, new_ord in merge["cards"]:
+            card = cards.get(card_id)
+            if card is None:
+                problems.append(f"missing card {card_id}")
+                continue
+            if int(card.get("note") or 0) != merge["base"] or card.get("ord") != new_ord:
+                problems.append(
+                    f"card {card_id} note {card.get('note')} ord {card.get('ord')}"
+                )
+            if card.get("interval") != interval or card.get("due") != due:
+                problems.append(
+                    f"card {card_id} history changed ivl {interval}->{card.get('interval')} "
+                    f"due {due}->{card.get('due')}"
+                )
+    gone = invoke("notesInfo", notes=plan["delete"]) or []
+    still = [note for note in gone if note.get("noteId")]
+    if still:
+        problems.append(f"{len(still)} verb notes still exist")
+    if problems:
+        for problem in problems:
+            _say("PROBLEM\t" + problem)
+        raise RuntimeError("merge verification failed")
+    _say("Verified card ids, note, template, interval, and due.")
+
+
+MISSING_VERB_BASES = {
+    "tark": ("tark", "Quitting or abandonment", "ترک", "Noun"),
+}
+
+
+def gate_main_templates() -> None:
+    """An empty main field must not grow a card. Verb-only notes use the verb slot."""
+    templates = invoke("modelTemplates", modelName=VOCAB_MODEL) or {}
+    fa = templates.get("FA -> EN") or {}
+    front = fa.get("Front") or ""
+    inverse = "{{^Farsi Script}}\n"
+    if inverse in front and "{{^Farsi Script}}\n{{#Farsi Transliteration}}" not in front:
+        start = front.find(inverse)
+        close = front.find("{{/Farsi Script}}", start)
+        if close == -1:
+            raise RuntimeError("Farsi front has no empty-script close")
+        front = (
+            front[: start + len(inverse)]
+            + "{{#Farsi Transliteration}}\n"
+            + front[start + len(inverse) : close]
+            + "{{/Farsi Transliteration}}\n"
+            + front[close:]
+        )
+        invoke(
+            "modelTemplateAdd",
+            timeout=120,
+            modelName=VOCAB_MODEL,
+            template={"Name": "FA -> EN", "Front": front, "Back": fa.get("Back") or ""},
+        )
+        print("Gated the Farsi front on the transliteration")
+    en = templates.get("EN -> FA") or {}
+    en_front = en.get("Front") or ""
+    if en_front and not en_front.lstrip().startswith("{{#English}}"):
+        en_front = "{{#English}}\n" + en_front.rstrip() + "\n{{/English}}\n"
+        invoke(
+            "modelTemplateAdd",
+            timeout=120,
+            modelName=VOCAB_MODEL,
+            template={
+                "Name": "EN -> FA",
+                "Front": en_front,
+                "Back": en.get("Back") or "",
+            },
+        )
+        print("Gated the English front on the English field")
+
+
+def plan_own_verb_slots() -> dict:
+    """Move a verb that has no base into the verb slot of its own note."""
+    merging = {item["verb"] for item in plan_verb_merges()["checks"]}
+    records = _load_vocab_records()
+    lines: list[str] = []
+    moves = []
+    edits = []
+    checks = []
+    ord_map = VERB_SLOTS[0][4]
+    for note in records:
+        pos = _pos(note["tags"])
+        if "verb" not in pos or pos & {"grammar", "prefix", "suffix"}:
+            continue
+        if note["tr"].startswith("-") or note["tr"].startswith("n*-"):
+            continue
+        if plain_field(note["fields"].get("Verb Transliteration", "")):
+            continue
+        if note["id"] in merging:
+            continue
+        if not note["piece"]:
+            continue
+        unknown = [card for card in note["cards"] if card.get("ord") not in ord_map]
+        if unknown:
+            lines.append(f"SKIP\t{note['tr']}\tunexpected card ord")
+            continue
+        targets = [ord_map[card.get("ord")] for card in note["cards"]]
+        occupied = {card.get("ord") for card in note["cards"]}
+        if any(target in occupied for target in targets):
+            lines.append(f"SKIP\t{note['tr']}\ttarget card already exists")
+            continue
+        head = note["piece"].split(" ")[0]
+        base = MISSING_VERB_BASES.get(head) if len(note["piece"].split(" ")) >= 2 else None
+        fields = {
+            "Verb Transliteration": note["fields"].get("Farsi Transliteration", ""),
+            "Verb English": note["fields"].get("English", ""),
+            "Verb Script": note["fields"].get("Farsi Script", ""),
+            VERB_SCRIPT_FIELD: note["fields"].get(SCRIPT_FIELD, ""),
+            "Farsi Transliteration": base[0] if base else "",
+            "English": base[1] if base else "",
+            "Farsi Script": base[2] if base else "",
+            SCRIPT_FIELD: "",
+        }
+        tags = list(note["tags"])
+        if base and base[3] not in tags:
+            tags.append(base[3])
+        for card in note["cards"]:
+            new_ord = ord_map[card.get("ord")]
+            moves.append({"card": card["cardId"], "note": note["id"], "ord": new_ord})
+            lines.append(
+                "SLOT\t"
+                f"{note['tr']}\t"
+                + (f"base {base[0]}\t" if base else "no base\t")
+                + f"card {card['cardId']} ord {card.get('ord')}->{new_ord} "
+                f"ivl {card.get('interval')} due {card.get('due')}"
+            )
+        edits.append({"id": note["id"], "fields": fields, "tags": tags})
+        checks.append(
+            {
+                "note": note["id"],
+                "tr": note["tr"],
+                "base": base[0] if base else "",
+                "cards": [
+                    (
+                        card["cardId"],
+                        card.get("interval"),
+                        card.get("due"),
+                        ord_map[card.get("ord")],
+                    )
+                    for card in note["cards"]
+                ],
+            }
+        )
+    return {"lines": lines, "moves": moves, "notes": edits, "delete": [], "checks": checks}
+
+
+def place_own_verbs(apply: bool) -> None:
+    if apply:
+        ensure_verb_model()
+        before = len(invoke("findCards", query=f'note:"{VOCAB_MODEL}"') or [])
+        gate_main_templates()
+        after = len(invoke("findCards", query=f'note:"{VOCAB_MODEL}"') or [])
+        if before != after:
+            raise RuntimeError(f"template gate changed the card count {before} -> {after}")
+        ensure_reposition_addon()
+    plan = plan_own_verb_slots()
+    for line in plan["lines"]:
+        _say(line)
+    _say(f"{len(plan['checks'])} verbs, {len(plan['moves'])} cards")
+    if not apply:
+        _say("Dry run. Nothing written.")
+        return
+    if not plan["moves"]:
+        _say("Nothing to move.")
+        return
+    result = invoke(
+        "mergeRelatedVerbs",
+        timeout=120,
+        moves=plan["moves"],
+        edits=plan["notes"],
+        delete=[],
+        undo="Move verbs into their verb slots",
+    )
+    _say(f"Moved {result}")
+    cards = fetch_cards_by_id([move["card"] for move in plan["moves"]])
+    problems = []
+    for item in plan["checks"]:
+        for card_id, interval, due, new_ord in item["cards"]:
+            card = cards.get(card_id)
+            if card is None:
+                problems.append(f"missing card {card_id}")
+                continue
+            if int(card.get("note") or 0) != item["note"] or card.get("ord") != new_ord:
+                problems.append(
+                    f"card {card_id} note {card.get('note')} ord {card.get('ord')}"
+                )
+            if card.get("interval") != interval or card.get("due") != due:
+                problems.append(f"card {card_id} history changed")
+    if problems:
+        for problem in problems:
+            _say("PROBLEM\t" + problem)
+        raise RuntimeError("verb slot verification failed")
+    _say("Verified card ids, template, interval, and due.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Farsi Anki unlock via AnkiConnect")
     parser.add_argument("--mature-days", type=int, default=MATURE_INTERVAL_DEFAULT)
@@ -1195,7 +1934,28 @@ def main():
         default=str(SENTENCES_INDEX_OUT),
         help="Compact sentence index path (with --export-indexes)",
     )
+    parser.add_argument(
+        "--merge-verbs",
+        action="store_true",
+        help="Print same-root verb merges. With --apply, move the cards and keep their history",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="With --merge-verbs or --verb-slots, write the change. Without this flag it is a dry run",
+    )
+    parser.add_argument(
+        "--verb-slots",
+        action="store_true",
+        help="Move verbs that are their own note into the verb slot. With --apply, keep their history",
+    )
     args = parser.parse_args()
+    if args.merge_verbs:
+        merge_related_verbs(apply=args.apply)
+        return
+    if args.verb_slots:
+        place_own_verbs(apply=args.apply)
+        return
     if args.export_indexes:
         export_indexes(
             deck_out=Path(args.deck_index_out),

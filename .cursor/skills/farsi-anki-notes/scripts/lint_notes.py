@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 NONSTANDARD = ("oo", "ee", "â", "ā", "ī", "ū", "ō", "ē", "'", "’")
-FIELD_COUNT = 8
 ALLOWED_DECKS = frozenset({"Farsi", "Farsi::Queue"})
 
 
@@ -42,17 +41,63 @@ def lint(path: Path) -> list[str]:
     header, rows = split_rows(text)
     errors: list[str] = []
     joined = "\n".join(header)
-    for needle in ("#separator:tab", "#html:true", "#guid column:1", "#tags column:8"):
+    widths = {len(fields) for _lineno, fields in rows}
+    if not widths:
+        widths = {8}
+    if widths - {8, 16}:
+        errors.append(f"row width must be 8 or 16, got {sorted(widths)}")
+        return errors
+    if len(widths) != 1:
+        errors.append("mixed 8-column and 16-column rows")
+        return errors
+    width = widths.pop()
+    for needle in (
+        "#separator:tab",
+        "#html:true",
+        "#guid column:1",
+        f"#tags column:{width}",
+    ):
         if needle not in joined:
             errors.append(f"header missing {needle}")
 
+    def check_translit(where: str, tr: str, label: str, required: bool) -> None:
+        if not tr:
+            if required:
+                errors.append(f"{where}: {label} empty")
+            return
+        if tr != tr.strip() or any(ch.isupper() for ch in tr):
+            errors.append(f"{where}: {label} transliteration ({tr})")
+        for mark in NONSTANDARD:
+            if mark in tr:
+                errors.append(f"{where}: nonstandard {mark!r} in {label} ({tr})")
+                break
+
+    def check_script(where: str, script: str, label: str, required: bool) -> None:
+        if script != script.strip():
+            errors.append(f"{where}: leading or trailing space")
+        if not script:
+            if required:
+                errors.append(f"{where}: {label} missing Persian letters")
+            return
+        if not any("\u0600" <= ch <= "\u06ff" for ch in script):
+            errors.append(f"{where}: {label} missing Persian letters")
+
+    def check_unlock(where: str, value: str, label: str) -> None:
+        if value not in ("", "1"):
+            errors.append(f"{where}: {label} is {value!r}")
+
     seen_guid: dict[str, int] = {}
     for lineno, fields in rows:
-        if len(fields) != FIELD_COUNT:
-            errors.append(f"L{lineno}: {len(fields)} fields, want {FIELD_COUNT}")
+        if len(fields) != width:
+            errors.append(f"L{lineno}: {len(fields)} fields, want {width}")
             continue
-        guid, model, deck, tr, _en, script, unlocked, tags = fields
+        guid, model, deck = fields[0], fields[1], fields[2]
+        tr, _en, script, unlocked = fields[3], fields[4], fields[5], fields[6]
+        tags = fields[-1]
         where = f"L{lineno}"
+        verb_tr = ""
+        if width == 16:
+            verb_tr = fields[7]
         if not guid:
             errors.append(f"{where}: guid empty")
         elif guid in seen_guid:
@@ -63,16 +108,20 @@ def lint(path: Path) -> list[str]:
             errors.append(f"{where}: notetype/deck is {model!r}/{deck!r}")
         if tr != tr.strip() or script != script.strip():
             errors.append(f"{where}: leading or trailing space")
-        if any(ch.isupper() for ch in tr):
-            errors.append(f"{where}: transliteration has uppercase ({tr})")
-        for mark in NONSTANDARD:
-            if mark in tr:
-                errors.append(f"{where}: nonstandard {mark!r} in transliteration ({tr})")
-                break
-        if not any("\u0600" <= ch <= "\u06ff" for ch in script):
-            errors.append(f"{where}: script missing Persian letters")
-        if unlocked not in ("", "1"):
-            errors.append(f"{where}: ScriptUnlocked is {unlocked!r}")
+        check_translit(where, tr, "transliteration", not verb_tr.strip())
+        check_script(where, script, "script", bool(tr.strip()))
+        check_unlock(where, unlocked, "ScriptUnlocked")
+        if width == 16:
+            verb_tr, verb_script, verb_unlock = fields[7], fields[9], fields[10]
+            verb2_tr, verb2_script, verb2_unlock = fields[11], fields[13], fields[14]
+            check_translit(where, verb_tr, "verb transliteration", False)
+            check_script(where, verb_script, "verb script", bool(verb_tr.strip()))
+            check_unlock(where, verb_unlock, "VerbScriptUnlocked")
+            check_translit(where, verb2_tr, "verb2 transliteration", False)
+            check_script(where, verb2_script, "verb2 script", bool(verb2_tr.strip()))
+            check_unlock(where, verb2_unlock, "Verb2ScriptUnlocked")
+            if verb_tr.strip() and verb_script != verb_script.strip():
+                errors.append(f"{where}: leading or trailing space")
         if not tags.strip():
             errors.append(f"{where}: tags empty")
     return errors

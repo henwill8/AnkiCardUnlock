@@ -47,6 +47,66 @@ def _reposition_new_cards(self, cards, positions):
     return _apply(self, {"cards": cards, "positions": positions})
 
 
+def _merge_related(legacy, params):
+    """Point verb cards at the base note. The card id, and its review log, stay."""
+    import html
+
+    moves = params.get("moves") or []
+    note_edits = params.get("edits") or []
+    delete_ids = [int(nid) for nid in (params.get("delete") or [])]
+    service = legacy.service
+    if service is None:
+        raise Exception("collection is not available")
+    col = service.col
+    undo = col.add_custom_undo_entry(params.get("undo") or "Merge related verbs")
+    changes = None
+    cards = []
+    for move in moves:
+        card = col.get_card(int(move["card"]))
+        card.nid = int(move["note"])
+        card.ord = int(move["ord"])
+        cards.append(card)
+    if cards:
+        changes = col.update_cards(cards)
+        col.merge_undo_entries(undo)
+        for move in moves:
+            row = col.db.first(
+                "select nid, ord from cards where id = ?",
+                int(move["card"]),
+            )
+            if (
+                row is None
+                or int(row[0]) != int(move["note"])
+                or int(row[1]) != int(move["ord"])
+            ):
+                raise Exception(f"card {move['card']} did not move")
+    notes = []
+    for edit in note_edits:
+        note = col.get_note(int(edit["id"]))
+        for name, value in (edit.get("fields") or {}).items():
+            note[name] = html.unescape(value or "")
+        extra = [tag for tag in (edit.get("tags") or []) if tag not in note.tags]
+        if extra:
+            note.tags = list(note.tags) + extra
+        notes.append(note)
+    if notes:
+        changes = col.update_notes(notes)
+        col.merge_undo_entries(undo)
+    if delete_ids:
+        changes = col.remove_notes(delete_ids)
+        col.merge_undo_entries(undo)
+    if changes is not None:
+        service.change(changes)
+    return {"cards": len(cards), "notes": len(notes), "deleted": len(delete_ids)}
+
+
+def _merge_related_verbs(self, moves, edits, delete, undo=None):
+    return _merge_related(
+        self,
+        {"moves": moves, "edits": edits, "delete": delete, "undo": undo},
+    )
+
+
 def _legacy_class(ac):
     for mod in sys.modules.values():
         if getattr(mod, "ac", None) is ac and hasattr(mod, "Legacy"):
@@ -64,6 +124,9 @@ def _install() -> None:
         _reposition_new_cards.api = True
         _reposition_new_cards.versions = []
         cls.repositionNewCards = _reposition_new_cards
+        _merge_related_verbs.api = True
+        _merge_related_verbs.versions = []
+        cls.mergeRelatedVerbs = _merge_related_verbs
         cls._anki_unlock_reposition = True
     legacy_cls = _legacy_class(ac)
     if legacy_cls is None or getattr(legacy_cls.call, "_anki_unlock_reposition", False):
@@ -73,6 +136,8 @@ def _install() -> None:
     def call(self, name, params):
         if name == "repositionNewCards":
             return _apply(self, params)
+        if name == "mergeRelatedVerbs":
+            return _merge_related(self, params)
         return original(self, name, params)
 
     call._anki_unlock_reposition = True

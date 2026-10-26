@@ -143,18 +143,25 @@ def expand_lexicon(deck_rows: list[dict[str, str]]) -> dict[str, set[str]]:
             return
         forms[surface].add(key)
 
+    entries: list[tuple[str, str, str, bool]] = []
     for row in deck_rows:
-        tr = row.get("transliteration", "")
-        sc = row.get("script", "")
+        entries.append(
+            (row.get("transliteration", ""), row.get("script", ""), row.get("tags", ""), False)
+        )
+        for prefix in ("verb", "verb2"):
+            verb_tr = row.get(f"{prefix}_transliteration", "")
+            verb_script = row.get(f"{prefix}_script", "")
+            if not verb_tr.strip() and not verb_script.strip():
+                continue
+            entries.append((verb_tr, verb_script, row.get("tags", ""), True))
+
+    for tr, sc, _tags, _force_verb in entries:
         for piece in re.split(r"[~/>]", sc.replace("&gt;", ">")):
             add_lemma(piece.strip().lstrip("-"), tr)
 
-    for row in deck_rows:
-        tr = row.get("transliteration", "")
-        sc = row.get("script", "")
-        tags = row.get("tags", "")
+    for tr, sc, tags, force_verb in entries:
         sc2 = sc.replace("&gt;", ">")
-        is_verb = "Verb" in tags.split() or ">" in tr or ">" in sc2
+        is_verb = force_verb or "Verb" in tags.split() or ">" in tr or ">" in sc2
         if not is_verb or ">" not in sc2:
             continue
         inf_part, stem_part = sc2.split(">", 1)
