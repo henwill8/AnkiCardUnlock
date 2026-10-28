@@ -12,9 +12,13 @@ card is unlocked it stays unlocked, even if that note later drops below the
 mature interval. Sentence script unlock is cleared when a required word
 drops below the mature interval, and those cards stay suspended until it is
 mature again. New script cards are spaced evenly through the cards still in
-the new queue, including buried siblings. Non-script notes keep their
-order. Siblings that shared one new-card number get separate numbers, and
-the cards of a note are shuffled among that note's numbers.
+the new queue, including buried siblings. Non-script siblings of a note stay
+together at the earliest sibling's place, so a card shifted by a merge comes
+back beside the one that stayed. A note that already has a learned card
+moves to the front of that queue. Script cards are placed after that order
+is set, in the gaps through the whole queue, not inside a sibling group.
+Siblings that shared one new-card number get separate numbers, and the cards
+inside each block are shuffled.
 """
 
 from __future__ import annotations
@@ -478,13 +482,18 @@ def _queue_cards(card_ids: list[int]) -> list[dict]:
     return records
 
 
-def _adjacent_note_blocks(cards: list[dict]) -> list[list[dict]]:
+def _cluster_note_blocks(cards: list[dict]) -> list[list[dict]]:
+    """Pull every card of a note to that note's earliest queue position."""
+    cards = sorted(cards, key=lambda card: (card["due"], card["ord"], card["id"]))
     blocks: list[list[dict]] = []
+    index_by_note: dict[int, int] = {}
     for card in cards:
-        if blocks and blocks[-1][0]["note"] == card["note"]:
-            blocks[-1].append(card)
-        else:
+        slot = index_by_note.get(card["note"])
+        if slot is None:
+            index_by_note[card["note"]] = len(blocks)
             blocks.append([card])
+        else:
+            blocks[slot].append(card)
     return blocks
 
 
@@ -494,37 +503,18 @@ def _script_blocks(cards: list[dict]) -> list[list[dict]]:
         by_note.setdefault(card["note"], []).append(card)
     blocks = []
     for group in by_note.values():
-        group.sort(key=lambda card: (card["ord"], card["id"]))
+        random.shuffle(group)
         blocks.append(group)
     random.shuffle(blocks)
     return blocks
 
 
-def _shuffle_siblings(sequence: list[dict]) -> list[dict]:
-    """Keep each note's positions. Shuffle which sibling sits in each one."""
-    slots_by_note: dict[int, list[int]] = {}
-    for index, card in enumerate(sequence):
-        slots_by_note.setdefault(card["note"], []).append(index)
-    shuffled = list(sequence)
-    for slots in slots_by_note.values():
-        if len(slots) < 2:
-            continue
-        cards = [sequence[slot] for slot in slots]
-        random.shuffle(cards)
-        for slot, card in zip(slots, cards):
-            shuffled[slot] = card
-    return shuffled
+def _place_script_blocks(fixed: list[list[dict]], scripts: list[dict]) -> list[dict]:
+    """Space script-card groups through the gaps of an ordered card list.
 
-
-def _spread_script_blocks(others: list[dict], scripts: list[dict]) -> list[dict]:
-    """Space script-card groups evenly through the other cards.
-
-    Other cards keep their queue order. Cards of one note that are already
-    next to each other stay next to each other. Script cards of one note stay
-    together.
+    ``fixed`` is already in queue order, one block per note. Script cards of
+    one note stay together in a gap, outside that note's block.
     """
-    others = sorted(others, key=lambda card: (card["due"], card["ord"], card["id"]))
-    fixed = _adjacent_note_blocks(others)
     inserted = _script_blocks(scripts)
     if not inserted:
         return [card for block in fixed for card in block]
@@ -563,17 +553,52 @@ def _position_group(deck: str) -> str:
     return deck
 
 
-def scatter_new_script_cards(card_ids: list[int]) -> int:
-    """Space these script cards evenly through each new-card position list.
+def _notes_with_learned_card(note_ids: list[int]) -> set[int]:
+    """Notes that already have a card past the new queue."""
+    learned: set[int] = set()
+    unique = list(dict.fromkeys(note_ids))
+    for start in range(0, len(unique), 50):
+        chunk = unique[start : start + 50]
+        query = "(" + " OR ".join(f"nid:{note_id}" for note_id in chunk) + ") -is:new"
+        found = invoke("findCards", query=query) or []
+        for index in range(0, len(found), 1000):
+            ids = found[index : index + 1000]
+            info = invoke("cardsInfo", cards=ids, fields=["note", "type"]) or []
+            for card in info:
+                if card and card.get("type") != 0:
+                    learned.add(int(card.get("note") or 0))
+    learned.discard(0)
+    return learned
 
-    Buried siblings and the other new cards keep their note order. Script
-    cards are placed in the gaps through that whole list. Each card then
-    gets its own new-card number, and the cards of a note are shuffled
-    among that note's numbers.
+
+def _script_ords_by_model() -> dict[str, set[int]]:
+    info = load_template_info(invoke("modelNames") or [])
+    return {
+        model: {ord_ for ord_, field in gates.items() if field in SCRIPT_CARD_FIELDS}
+        for model, (gates, _fronts) in info.items()
+    }
+
+
+def _card_is_script(card: dict, script_ords: dict[str, set[int]]) -> bool:
+    if card["deck"] == SENTENCE_DECK or card["deck"].startswith(SENTENCE_DECK + "::"):
+        model = SENTENCE_MODEL
+    else:
+        model = VOCAB_MODEL
+    return card["ord"] in script_ords.get(model, set())
+
+
+def scatter_new_script_cards(card_ids: list[int] | None = None) -> int:
+    """Put non-script siblings together and space script cards through the gaps.
+
+    A note's non-script new cards, including buried ones, gather at that
+    note's earliest position. Notes that already have a learned card go to
+    the front, in the order those notes already had. Script cards are placed
+    after that order is set, spaced through the gaps of the whole queue, so
+    they are not inside a sibling group. Each card then gets its own
+    new-card number, and the cards inside each block are shuffled.
     """
-    moving = set(dict.fromkeys(card_ids))
-    if not moving:
-        return 0
+    moving = set(dict.fromkeys(card_ids or []))
+    script_ords = _script_ords_by_model()
     found = invoke(
         "findCards",
         query=(
@@ -582,22 +607,32 @@ def scatter_new_script_cards(card_ids: list[int]) -> int:
         ),
     ) or []
     records = _queue_cards(list(dict.fromkeys([*found, *moving])))
+    learned = _notes_with_learned_card([card["note"] for card in records])
     by_group: dict[str, list[dict]] = {}
     for card in records:
         by_group.setdefault(_position_group(card["deck"]), []).append(card)
+    repositioned = 0
     for cards in by_group.values():
-        others = [card for card in cards if card["id"] not in moving or card["queue"] != 0]
-        scripts = [card for card in cards if card["id"] in moving and card["queue"] == 0]
-        if not scripts:
+        others = [card for card in cards if not _card_is_script(card, script_ords)]
+        scripts = [card for card in cards if _card_is_script(card, script_ords)]
+        if not scripts and not others:
             continue
-        sequence = _shuffle_siblings(_spread_script_blocks(others, scripts))
+        front = [card for card in others if card["note"] in learned]
+        rest = [card for card in others if card["note"] not in learned]
+        fixed = _cluster_note_blocks(front) + _cluster_note_blocks(rest)
+        for block in fixed:
+            random.shuffle(block)
+        sequence = _place_script_blocks(fixed, scripts)
         ordered = [card["id"] for card in sequence]
+        if not ordered:
+            continue
         invoke(
             "repositionNewCards",
             cards=ordered,
             positions=list(range(len(ordered))),
         )
-    return len(moving)
+        repositioned += len(ordered)
+    return repositioned
 
 
 def ensure_reposition_addon() -> None:
@@ -679,7 +714,7 @@ def sync_card_visibility(
         f"Visibility: suspended={suspended}; unsuspended={unsuspended}; "
         f"fully locked notes={fully_locked}"
     )
-    if script_new:
+    if unsuspend:
         ensure_reposition_addon()
         try:
             moved = scatter_new_script_cards(script_new)
@@ -687,13 +722,13 @@ def sync_card_visibility(
             if "unsupported action" not in str(exc).lower():
                 raise
             print(
-                "New script cards were not repositioned. "
+                "New cards were not repositioned. "
                 "AnkiConnect has no reposition action, so the "
                 "anki_unlock_reposition addon was installed. "
                 "Restart Anki once so it loads, then run this script again."
             )
         else:
-            print(f"New script cards repositioned: {moved}")
+            print(f"New queue repositioned: {moved}")
 
 
 def ensure_field(model: str, field: str, existing: list[str] | None = None) -> list[str]:
