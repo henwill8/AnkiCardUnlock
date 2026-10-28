@@ -205,7 +205,7 @@ Add sentence notes only when the user asks, or when the new vocab goes into `Far
 
 1. `python anki_unlock.py --export-indexes` if the indexes are missing or stale.
 2. Append the new vocab rows from `farsi_import.txt` onto `deck_index.txt` (same columns as that file's `# columns` line, including the verb columns when the row has a verb slot) so `--words` can resolve words that are not in Anki yet. The finder reads `deck_index.txt` only.
-3. `python .cursor/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words <script or translit…>` for the new words (batch them; prefer script forms).
+3. `python .agents/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words <script or translit…>` for the new words (batch them; prefer script forms).
 4. Read only `sentence_candidates.txt`. Do not load Tatoeba dumps or full Anki JSON into the chat.
 5. Build sentence notes from those hits first. Only then invent for uncovered words.
 

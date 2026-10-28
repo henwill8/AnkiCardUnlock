@@ -37,7 +37,7 @@ Vocab notes have no example-sentence fields. Sentence practice is only in the `F
 
 ```text
 python anki_unlock.py --export-indexes
-python .cursor/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words خونه اتاق
+python .agents/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words خونه اتاق
 ```
 
 `--export-indexes` writes `deck_index.txt` and `sentences_index.txt` (guid + compact fields). The candidate script searches Tatoeba Persian for lines whose tokens are all in your deck and writes `sentence_candidates.txt`. Many hits are formal and still need a spoken Tehrani rewrite; the script does not auto-import.
