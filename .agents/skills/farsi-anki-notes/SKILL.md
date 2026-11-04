@@ -4,24 +4,18 @@ description: >-
   Fill and normalize live Farsi Anki vocab notes through AnkiConnect: formal
   and spoken forms, Persian script, part-of-speech tags, and transliteration
   (u for long oo, aa for long a, i for long e, a for short a, o for short o,
-  e for short e). Do not add Farsi Sentence notes for words going into the
-  main Farsi deck unless the user asks; they meet those words in real
-  sentences. When they do ask, or when new notes go into Farsi::Queue, run the
-  Tatoeba candidate script first and invent only on NO_COVERED_CANDIDATE.
-  Commonly spoken lines can be any length. A short sentence must be commonly
-  spoken; otherwise use a longer line with several deck words. Write note
-  changes to an import file the user reviews in Anki. Suspend cards on a note
-  that has no available template, so Anki does not show a blank front. Use when
-  the user adds incomplete Farsi notes, asks to fix note formatting or
-  transliteration, wants words from a Persian vocabulary or frequency list, or
-  wants sentences for new vocab.
+  e for short e). Write note changes to an import file the user reviews in
+  Anki. Suspend cards on a note that has no available template, so Anki does not
+  show a blank front. Use when the user adds incomplete Farsi notes, asks to fix
+  note formatting or transliteration, or wants words from a Persian vocabulary
+  or frequency list.
 ---
 
 # Farsi Anki notes
 
 Normalize the user's live Farsi notes, then add any word list they supply. Match notes already in Anki. Read [reference.md](reference.md) for spoken alternations and tags. Read [examples.md](examples.md) before rewriting a row.
 
-Vocab notes do not carry example sentences. Sentence practice lives only on `Farsi Sentence` notes.
+Vocab notes do not carry example sentences.
 
 ## Decks
 
@@ -36,7 +30,6 @@ Study and browse `Farsi`. `anki_unlock.py` searches `deck:"Farsi"`, which includ
 |------|------|
 | New vocab from this skill / import | `Farsi::Queue` unless asked to be in `Farsi` |
 | Existing vocab being fixed | Keep that note's deck (`Farsi` or `Farsi::Queue`). Never move a note between them when fixing. |
-| Sentence notes | `Farsi Sentences` (unchanged) |
 
 Do not put new agent-added vocab in `Farsi::Queue`.
 
@@ -46,16 +39,15 @@ Anki is open with AnkiConnect at `http://127.0.0.1:8765`. If AnkiConnect does no
 
 Do **not** load full `notesInfo` JSON into context. That dump is tens of thousands of tokens. Use the compact indexes instead:
 
-1. Run `python anki_unlock.py --export-indexes` when `deck_index.txt` or `sentences_index.txt` is missing or stale.
+1. Run `python anki_unlock.py --export-indexes` when `deck_index.txt` is missing or stale.
 2. Read `deck_index.txt` for vocab (guid, deck, transliteration, english, script, ScriptUnlocked, tags).
-3. Read `sentences_index.txt` for existing sentence notes (guid, transliteration, english, script, tags).
-4. Read `learned_vocab.txt` when preferring known words inside new sentences.
+3. Read `learned_vocab.txt` for learned words.
 
 Fetch a single note with AnkiConnect only when the index row is not enough. Never pull the whole deck through `notesInfo`.
 
 Guids are in the index files. Copy the guid already on that note. Do not invent a guid for a note that already exists, or the import will add a duplicate.
 
-Do not write notes with `updateNoteFields` or `addNote`. Write an import file the user imports, so Anki's import screen shows every change. One notetype per file. Put vocab changes in `farsi_import.txt` in the repo. Put sentence-note changes in `farsi_sentences_import.txt`. An existing note keeps its guid, so the import updates that note. A new note gets a new guid.
+Do not write notes with `updateNoteFields` or `addNote`. Write an import file the user imports, so Anki's import screen shows every change. One notetype per file. Put vocab changes in `farsi_import.txt` in the repo. An existing note keeps its guid, so the import updates that note. A new note gets a new guid.
 
 Copy guid, deck, ScriptUnlocked, English, script, transliteration, and tags from the index (or Anki) unless that field is one you are fixing. Never set or clear ScriptUnlocked. Never change an existing note's deck.
 
@@ -63,9 +55,9 @@ Copy guid, deck, ScriptUnlocked, English, script, transliteration, and tags from
 
 Anki builds a card when that template's front would show text. If every template is locked, it still keeps one card, and the front is blank. Suspend those cards or they show up in study.
 
-A front shows text when, after `{{#Field}}` / `{{^Field}}` and replacements (`{{Field}}`, `{{type:Field}}`, `{{hint:Field}}`), some text remains. A field is empty when it has no text. `ScriptUnlocked`, `VerbScriptUnlocked`, `Verb2ScriptUnlocked`, `SentenceUnlocked`, and `SentenceScriptUnlocked` count only when the value is `1`.
+A front shows text when, after `{{#Field}}` / `{{^Field}}` and replacements (`{{Field}}`, `{{type:Field}}`, `{{hint:Field}}`), some text remains. A field is empty when it has no text. `ScriptUnlocked`, `VerbScriptUnlocked`, and `Verb2ScriptUnlocked` count only when the value is `1`.
 
-If no template on a note would show text, that note has no available card. Suspend every card on it. Also suspend a card whose own front would show no text, even when another card on the same note is available. Vocab FA↔EN stays available while script is locked, so do not suspend those cards. A new sentence note leaves both unlock fields empty, so none of its cards are available.
+If no template on a note would show text, that note has no available card. Suspend every card on it. Also suspend a card whose own front would show no text, even when another card on the same note is available. Vocab FA↔EN stays available while script is locked, so do not suspend those cards.
 
 The import file cannot suspend. For notes already in Anki, suspend their card ids with AnkiConnect action `suspend`. Do not unsuspend. Do not set or clear an unlock field to do this. `anki_unlock.py` suspends the same cards on every run. `python anki_unlock.py --suspend-locked` suspends them and does not change unlock fields. Run that after the notes are in Anki, including after the user imports.
 
@@ -184,7 +176,7 @@ On each bad note:
 
 Do not delete a note the deck already had. Delete only a newly added note whose meaning is already covered, as in [Same meaning](#same-meaning). Do not reorder existing notes. Do not change a gloss that is already accurate. Do not set `ScriptUnlocked`. Do not put example sentences on vocab notes.
 
-Changing a transliteration changes the slug sentence notes use in `req::` tags (`khooneh` becomes `khuneh`). If you are also writing sentence notes, update those tags. If you are not, still fix the vocab spelling and list the old → new slugs in the summary.
+Fix the vocab spelling and list any old → new transliterations in the summary.
 
 ## Adding a word list
 
@@ -195,59 +187,7 @@ When the user also gives a list or a URL:
 3. If the list only adds the spoken side of a note that is already there, update that note in the import. Do not add a duplicate.
 4. New notes go in the import, in list order. Deck `Farsi`. Empty `ScriptUnlocked`. New guid, unique among the import and the notes already in Anki. A noun or adjective with no verb is eight fields. A verb, or a word that has a verb slot, is sixteen fields.
 5. A verb that is the same idea and the same root is written onto the base note's verb slot, light verb or not. Keep the base guid. Before adding a noun or adjective, check for a verb people use with that word. Before adding a verb, check for a base people say. A missing base that people say becomes the main fields, with the verb in the verb slot. A verb with no base keeps its own guid, with empty main fields and the verb in the verb slot. A different idea or a different root stays apart. Do not invent an unrelated compound. Do add colloquially used subwords and new prefixes. If a listed word is only `-i`, or another ending just as transparent, and it is the same idea as the base, enter the base instead. If that word is a new meaning, keep it and add the base when people say the base. See [Pieces of a new word](#pieces-of-a-new-word).
-6. Do not add sentences for new notes in `Farsi`. The user is already meeting those words in real sentences. Add sentences only when the user asks, or when the new notes go into `Farsi::Queue`. Follow [Sentences](#sentences).
-
-## Sentences
-
-Add sentence notes only when the user asks, or when the new vocab goes into `Farsi::Queue`. Do not write `farsi_sentences_import.txt` for words going into the main `Farsi` deck. When you do add sentences, write them to `farsi_sentences_import.txt`. Do not put `Farsi Sentence` notes in `farsi_import.txt`.
-
-**Required before any invented sentence.** Do not draft `farsi_sentences_import.txt` from scratch, and do not skip this to save a turn. Run the candidate script for every new-word batch so Tatoeba can supply lines (or prove none are covered). Inventing is only the fallback after a `NO_COVERED_CANDIDATE` result.
-
-1. `python anki_unlock.py --export-indexes` if the indexes are missing or stale.
-2. Append the new vocab rows from `farsi_import.txt` onto `deck_index.txt` (same columns as that file's `# columns` line, including the verb columns when the row has a verb slot) so `--words` can resolve words that are not in Anki yet. The finder reads `deck_index.txt` only.
-3. `python .agents/skills/farsi-anki-notes/scripts/find_sentence_candidates.py --words <script or translit…>` for the new words (batch them; prefer script forms).
-4. Read only `sentence_candidates.txt`. Do not load Tatoeba dumps or full Anki JSON into the chat.
-5. Build sentence notes from those hits first. Only then invent for uncovered words.
-
-Hit handling:
-
-- `status=spokenish`: start from that line; light edits only.
-- `status=needs_spoken_rewrite`: keep the meaning and deck-covered vocab, rewrite into colloquial Tehrani.
-- `NO_COVERED_CANDIDATE`: invent a line (rules below).
-
-Dedup against `sentences_index.txt` by script or transliteration. Prefer a few dense sentences that cover several new words over one thin sentence per word.
-
-Match an existing sentence file's header. A new file is:
-
-```text
-#separator:tab
-#html:true
-#guid column:1
-#notetype column:2
-#deck column:3
-#tags column:11
-```
-
-Columns: guid, `Farsi Sentence`, `Farsi Sentences`, Farsi Transliteration, English, Farsi Script, ClozePrompt, SentenceUnlocked, SentenceScriptUnlocked, Hint, tags.
-
-Leave both unlock fields empty. That note has no available card, so its cards must be suspended once they exist in Anki. See [Blank fronts](#blank-fronts). New guid. Do not duplicate a sentence already in the sentence index.
-
-Use a sentence people actually say. Length does not decide that. A common line can be short or long.
-
-A short sentence is allowed only when people say that line all the time. `Salaam, chetori?` and `Khasteam.` count. `Otaagh bozorge` does not. If the new word is not part of a common short line, put it in a longer sentence that uses several other words from the deck.
-
-Tag length, not commonness: `diff::1` short, `diff::2` medium, `diff::3` longer. A long line people say every day is still `diff::3`.
-
-When sentences are requested, every new content word in that batch still has to appear in at least one sentence.
-
-Write colloquial Tehrani, the way the sentence deck already does: `mishe`, `aare`, `digeh`, `alaan`, `un`, `ro`, `ageh`, `khuneh`, spoken endings. Every content word must already be a vocab note. If a natural sentence needs a word that is not in the deck, write a different sentence.
-
-Transliteration uses the same spelling key as the vocab notes. Capitalize the first letter of the sentence only. Script is the same spoken sentence in normal spelling, including `می‌` with ZWNJ.
-
-`req::` tags use the vocab key of each word in the sentence. Slug = lowercase, spaces removed, then drop every character except `a-z`, `0-9`, `*`, and `-`. Split the vocab headword on `~`, `/`, and `>` first, and tag the piece that appears. `mishe` → `req::mishe`. `sohbat mikonam` → `req::sohbatkardan`. `to-ro` → `req::to` and `req::raa`. Also tag `diff::` and a `theme::` (`greeting`, `daily`, `plans`, `feelings`, `questions`, `affection`, or a short new one).
-
-ClozePrompt is the transliteration with one blank on the new word, and only when the rest of the line is still a sentence. The Cloze card shows **English on the front** with that blanked Persian line, so the meaning is fixed and the blank is not open-ended. Leave ClozePrompt empty on a fixed phrase, or when several words could still fit even with the English. Hint is a few words or empty.
 
 ## Report
 
-Tell the user the import path, how many notes you fixed, how many you added, and how many list words were already present. Say which same-meaning words were folded onto an existing note, whether the delimiter was `/` or `~`, and which new notes were deleted. Say which subwords or prefixes you added with the new words, which derived `-i` forms you rewrote to the base because they are the same idea, which you did not add for that reason, and which you kept because the derived word is a new meaning, and which surface forms you did not add because they are only a conjugation of a verb already in the deck. Name any older same-meaning pair you noticed and did not change. If you added no sentence notes because the words went into `Farsi`, say that. If you did add sentences, say how many, which words they cover, and how many started from a Tatoeba candidate (`spokenish` or `needs_spoken_rewrite`) versus how many were invented after `NO_COVERED_CANDIDATE`. Give a few before → after examples. Mention transliteration slugs that changed. Say how many fully locked cards you suspended. If new notes are not in Anki yet, say those cards get a blank front until they are suspended after import. Do not paste the deck. The user imports the file; do not import it for them.
+Tell the user the import path, how many notes you fixed, how many you added, and how many list words were already present. Say which same-meaning words were folded onto an existing note, whether the delimiter was `/` or `~`, and which new notes were deleted. Say which subwords or prefixes you added with the new words, which derived `-i` forms you rewrote to the base because they are the same idea, which you did not add for that reason, and which you kept because the derived word is a new meaning, and which surface forms you did not add because they are only a conjugation of a verb already in the deck. Name any older same-meaning pair you noticed and did not change. Give a few before → after examples. Mention transliterations that changed. Say how many fully locked cards you suspended. If new notes are not in Anki yet, say those cards get a blank front until they are suspended after import. Do not paste the deck. The user imports the file; do not import it for them.

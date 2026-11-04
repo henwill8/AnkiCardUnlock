@@ -7,7 +7,7 @@ Farsi            ← main deck; agent-added vocab goes here
 └── Queue        ← paced backlog
 ```
 
-New vocab import rows from this skill use `Farsi`. When fixing a note, keep its current deck. Sentence notes stay in `Farsi Sentences`. Searching or unlocking `deck:"Farsi"` includes `Farsi::Queue`.
+New vocab import rows from this skill use `Farsi`. When fixing a note, keep its current deck. Searching or unlocking `deck:"Farsi"` includes `Farsi::Queue`.
 
 ## Tags already in the deck
 

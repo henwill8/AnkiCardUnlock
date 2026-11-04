@@ -4,13 +4,14 @@ description: >-
   Practice conversational Farsi from vocab the user has learned in Anki, plus
   any extra words they use. Reads compact practice dumps from anki_unlock.py.
   Speaks and expects replies in the deck transliteration or in Persian script.
-  Use when the user wants to practice speaking, chat, text, or hold a
-  conversation in Farsi or Persian with words they know.
+  Moves unlearned queued cards to the main deck or creates new base notes when
+  new words are introduced. Use when the user wants to practice speaking, chat,
+  text, or hold a conversation in Farsi or Persian with words they know.
 ---
 
 # Farsi conversation
 
-Hold a conversation in the user's Farsi. Start from the compact practice files. They may also use words they remember that are not in those files. Once they use such a word, you may use it too. You may introduce a new word when the conversation needs it. Do that rarely, one word in a turn, two at most. English is only for running the practice: choosing a mode, noting formal speech, glossing a word you just introduced, or answering an English question about how to say something.
+Hold a conversation in the user's Farsi. Start from the compact practice files. They may also use words they remember that are not in those files. Once they use such a word, you may use it too. You may introduce new useful words naturally to expand their vocabulary (roughly 1–2 words every few turns, up to 5–10 in a long conversation). Explicitly state each introduced word, its gloss, and its note action. English is only for running the practice: choosing a mode, noting formal speech, correcting grammar or unnatural phrasing, stating and glossing a word you just introduced, or answering an English question about how to say something.
 
 ## Word lists (keep this cheap)
 
@@ -20,7 +21,7 @@ Before the first reply, refresh dumps if needed, then read only the small files:
 2. **Default mode:** read `practice_vocab.txt` and `practice_grammar.txt`. Do not read `learned_vocab.txt`.
 3. **New / hard / recent / missing focus:** read `practice_focus.txt` and `practice_grammar.txt`. Do not read the full `learned_vocab.txt`.
 
-Do not invent words to fill a gap. Do not paste any of these files into the chat. Do not load `deck_index.txt` or Anki `notesInfo` for conversation.
+Do not invent words to fill a gap. Do not paste any of these files into the chat. Do not load `deck_index.txt` or Anki `notesInfo` for general conversation; inspect `deck_index.txt` only when introducing a new word to check for an existing note.
 
 Skip blank lines and lines that start with `#`.
 
@@ -101,7 +102,9 @@ You use the spoken side. Say a `phrase` row as a whole. Leave out a synonym that
 
 They may use either side of `~`, including a formal stem or ending. When they use the formal side, accept the sentence, name that word, and give the spoken form. One note is enough. Do not reject the turn for being formal.
 
-Put that note on its own line. The conversational reply is the next paragraph, after a blank line. Do the same for a script spelling fix. Do not add a line for their transliteration spelling, and do not flag a word for being outside the file.
+When what they say has a grammatical mistake or unnatural phrasing, note the correction on its own line and give the natural phrasing (e.g. `daaneshgaah ro raftam` uses `ro` with `raftan`; say `daaneshgaah raftam` or `be daaneshgaah raftam`).
+
+Put that note on its own line. The conversational reply is the next paragraph, after a blank line. Do the same for a formal note or a script spelling fix. Do not add a line for their transliteration spelling variations, and do not flag a word for being outside the file.
 
 ## How to talk
 
@@ -113,7 +116,49 @@ Their reply should be Farsi in the active mode. If they answer the content in En
 
 A word they use that is not in the file is allowed. Accept it, remember it, and you may use it afterward. Do not tell them it is not learned yet.
 
-Introduce a word only when the talk is stuck without it or a native would need it for what they are saying. Not every turn. One new word in a turn, two at most. Put a short English gloss of each new word on its own line, then continue in Farsi after a blank line. After that, the word is in play and needs no gloss. If they ask how to say something, give that word the same way.
+## Introducing new words
+
+Introduce useful new words naturally to expand the user's vocabulary. Pace them at roughly 1–2 new words every few turns, aiming for around 5–10 new words across a long conversation. Do not overwhelm by introducing new words in every single turn.
+
+When introducing a new word, explicitly state it in English on its own line before your Farsi reply, and ensure an Anki card is moved or created for its base word so the user will learn it.
+
+### Target the base of the word
+
+Follow the note design rules in the `farsi-anki-notes` skill (`## Pieces of a new word`):
+
+1. **Base focus:** If the base is a commonly used word by itself, focus on that base.
+2. **Grammar affixes:** Strip possessive suffixes (`-esh`, `-am`, `-et`, etc.), verb personal endings, and prefixes (`mi-`, `be-`, `na-`, ezafe `-e`). These are grammar affixes from `practice_grammar.txt`, not part of the base headword.
+3. **Transparent `-i`:** When a word ends in `-i` and shares the same core meaning as its base noun or adjective (`zakhmi` → `zakhm`, `deltangi` → `deltang`, `zibaayi` → `zibaa`), target the base without `-i`. Keep both only if `-i` creates a completely distinct new meaning (`ghahveh` / `ghahvei`).
+4. **Compound verbs:** A light-verb compound (`ghadam zadan`, `sohbat kardan`) belongs in the verb slot of the base noun/adjective (`ghadam`, `sohbat`). If the base is commonly used alone, focus on that base. If the verb has no freestanding base (`raftan`), it stays its own verb-slot note with empty main fields.
+
+### Check and move or create
+
+Check `deck_index.txt` (or query AnkiConnect) for the base word and its verb slots:
+
+1. **Card already exists:**
+   - **In `Farsi::Queue` (or unlearned):** Move it to the main `Farsi` deck so the user will learn it. If AnkiConnect is open, change its cards' deck to `Farsi` via `changeDeck`. In addition, write or update the note in `farsi_import.txt` with deck set to `Farsi` (preserving guid, fields, and tags).
+   - **In `Farsi` (already learned or active):** No move needed.
+2. **No note exists:**
+   - Create a new note in `farsi_import.txt` following `farsi-anki-notes` specifications:
+     - Header: `#separator:tab`, `#html:true`, `#guid column:1`, `#notetype column:2`, `#deck column:3`, `#tags column:8` (or `16` for verb slots).
+     - Deck: `Farsi`.
+     - Notetype: `Farsi`.
+     - New unique 10-character Anki guid. Empty unlock fields.
+     - Standardized transliteration (lowercase, single-letter vowel key: `u`, `i`, `aa`, `a`, `o`, `e`, `~` for formal ~ spoken).
+     - Everyday Persian script (no vowel marks, Persian ی/ک, ZWNJ where appropriate).
+     - English gloss (verbs start with `To `).
+     - POS tags from the inventory (`Noun`, `adjective`, `Verb`, etc.).
+     - 8-column row for a noun/adjective without a verb; 16-column row for a verb or base with a verb slot.
+     - Run `python .agents/skills/farsi-anki-notes/scripts/lint_notes.py farsi_import.txt` and fix any errors until it prints `OK`.
+     - If Anki is running with AnkiConnect, run `python anki_unlock.py` to refresh dumps and suspend locked cards once imported.
+
+### Explicit statement in conversation
+
+State the introduction and note action on its own line in English, followed by a blank line, before continuing in Farsi:
+- If moved from queue: `[New word: aali (great) — moved note 'aali' from Farsi::Queue to Farsi]`
+- If created: `[New word: aashpaz (cook) — created note in Farsi (farsi_import.txt)]`
+
+After that turn, the word is in play and needs no further gloss. If the user asks in English how to say something, introduce the word the same way.
 
 ## Turn shape
 
@@ -128,6 +173,24 @@ You: Khastei? Khaab boro.
 ```
 
 `khoobam` is close enough to `khub` plus a learned ending. Do not mention the spelling. The reply uses the row's spelling.
+
+Grammar or unnatural phrasing note:
+
+```text
+User: Man daneshgah ro raftam.
+You: daaneshgaah ro raftam uses ro with an intransitive verb; say daaneshgaah raftam or be daaneshgaah raftam.
+
+Daaneshgaah chetor bud?
+```
+
+Introducing a new word explicitly:
+
+```text
+User: Diruz che kaar kardi?
+You: [New word: aashpaz (cook) — created note in Farsi (farsi_import.txt)]
+
+Diruz baa ye aashpaz sohbat kardam.
+```
 
 Formal is allowed. Note it and give the spoken line:
 

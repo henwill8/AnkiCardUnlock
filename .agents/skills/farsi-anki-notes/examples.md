@@ -82,21 +82,6 @@ shodan &gt; shav ~ sho / شدن &gt; شو
 
 Do not write `رو ~ رو`.
 
-## Sentence for a new word
-
-Run `find_sentence_candidates.py` first and adapt a covered hit when you can. `otaagh` is not something you say alone. Put it in a line you would actually text, using other deck words. Spoken `ro`, `un`, `mishe`. First letter capitalized. Unlock fields empty.
-
-```text
-Mishe fardaa berim un otaagh?
-Can we go to that room tomorrow?
-میشه فردا بریم اون اتاق؟
-ClozePrompt: Mishe fardaa berim un ____?
-(Cloze front shows the English + that blanked line, so the blank is cued.)
-tags: diff::3 req::fardaa req::mishe req::otaagh req::raftan req::un theme::plans
-```
-
-`Salaam, chetori?` is short and people say it constantly, so it is allowed (`diff::1`). A longer line people say all the time is also allowed; tag it `diff::2` or `diff::3` for its length. `Otaagh bozorge.` is short and not something people say, so it is not allowed. Leave ClozePrompt empty when the English would still allow several Persian fillers.
-
 ## Same meaning
 
 جدید and تازه are two words for “new,” and neither is the colloquial form of the other, so the note is `jadid / taazeh` / `جدید / تازه`. ممنون is formal and مرسی is colloquial, so that note stays `mamnun ~ mersi`.
