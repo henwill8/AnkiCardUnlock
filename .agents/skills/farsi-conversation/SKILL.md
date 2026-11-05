@@ -133,10 +133,10 @@ Follow the note design rules in the `farsi-anki-notes` skill (`## Pieces of a ne
 
 ### Check and move or create
 
-Check `deck_index.txt` (or query AnkiConnect) for the base word and its verb slots:
+Check `deck_index.txt` directly for the base word and its verb slots:
 
 1. **Card already exists:**
-   - **In `Farsi::Queue` (or unlearned):** Move it to the main `Farsi` deck so the user will learn it. If AnkiConnect is open, change its cards' deck to `Farsi` via `changeDeck`. In addition, write or update the note in `farsi_import.txt` with deck set to `Farsi` (preserving guid, fields, and tags).
+   - **In `Farsi::Queue` (or unlearned):** Move it to the main `Farsi` deck so the user will learn it. Write or update the note in `farsi_import.txt` with deck set to `Farsi` (preserving guid, fields, and tags).
    - **In `Farsi` (already learned or active):** No move needed.
 2. **No note exists:**
    - Create a new note in `farsi_import.txt` following `farsi-anki-notes` specifications:

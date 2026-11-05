@@ -28,10 +28,10 @@ Study and browse `Farsi`. `anki_unlock.py` searches `deck:"Farsi"`, which includ
 
 | Note | Deck |
 |------|------|
-| New vocab from this skill / import | `Farsi::Queue` unless asked to be in `Farsi` |
-| Existing vocab being fixed | Keep that note's deck (`Farsi` or `Farsi::Queue`). Never move a note between them when fixing. |
+| New vocab from this skill / import | `Farsi` |
+| Existing vocab being fixed | Keep that note's deck. Never move a note between `Farsi` and `Farsi::Queue`. |
 
-Do not put new agent-added vocab in `Farsi::Queue`.
+Script **cards** (not notes) on a note whose `ScriptUnlocked` is `1` are moved to `Farsi::Queue` at the card level via AnkiConnect `changeDeck`. The note itself stays in whatever deck it is in. See [Script card placement](#script-card-placement).
 
 ## Source
 
@@ -50,6 +50,26 @@ Guids are in the index files. Copy the guid already on that note. Do not invent 
 Do not write notes with `updateNoteFields` or `addNote`. Write an import file the user imports, so Anki's import screen shows every change. One notetype per file. Put vocab changes in `farsi_import.txt` in the repo. An existing note keeps its guid, so the import updates that note. A new note gets a new guid.
 
 Copy guid, deck, ScriptUnlocked, English, script, transliteration, and tags from the index (or Anki) unless that field is one you are fixing. Never set or clear ScriptUnlocked. Never change an existing note's deck.
+
+## Script card placement
+
+When a note has `ScriptUnlocked` = `1`, its script cards (the card templates whose front shows the Farsi script) must live in `Farsi::Queue`, even if the note itself is in `Farsi`. The import file cannot do this; use AnkiConnect `changeDeck` after the notes are in Anki.
+
+Steps:
+
+1. Find the card ids of script cards on `ScriptUnlocked` notes in `Farsi` (not already in `Farsi::Queue`):
+   ```json
+   {"action": "findCards", "version": 6,
+    "params": {"query": "deck:Farsi ScriptUnlocked:1"}}
+   ```
+   Filter that list to cards whose template front references the script field (template name contains `Script` or `FA Script`).
+2. Move those card ids:
+   ```json
+   {"action": "changeDeck", "version": 6,
+    "params": {"cards": [<ids>], "deck": "Farsi::Queue"}}
+   ```
+
+Do this after every import that unlocks script cards, and after `python anki_unlock.py --suspend-locked` (so suspended script cards are already excluded from study before the deck move). Do not move script cards that are already in `Farsi::Queue`.
 
 ## Blank fronts
 
@@ -74,13 +94,13 @@ The import uses this header:
 #tags column:8
 ```
 
-Eight tab-separated fields when the note has no verb. Anki maps columns 4–7 onto the first four fields of the note type. The live script field is named `Farsi Script`. A row that fills a verb slot is sixteen fields, with `#tags column:16`, and keeps the base guid, deck, and `ScriptUnlocked`. A verb with no base is also sixteen fields: the main transliteration, English, script, and `ScriptUnlocked` are empty, and the verb slot holds the verb. Do not mix 8-column and 16-column rows in one file.
+Eight tab-separated fields when the note has no verb. Anki maps columns 4–7 onto the first four fields of the note type. The live script field is named `Farsi Script`. A row that fills a verb slot on an existing base note is sixteen fields, with `#tags column:16`, and keeps the base guid, deck, and `ScriptUnlocked`. For a standalone verb with no base noun (e.g. `maandan ~ mundan > maan ~ mun`, `raftan > rav ~ ro`): Anki GUI text import strictly requires that the first mapped field (`Farsi Transliteration`, Column 4) is not blank. Write the verb into the main fields (Columns 4, 5, 6), leave the verb columns empty, and tag `Verb`. After importing, run `python anki_unlock.py --verb-slots --apply` to move it into the verb slot. Do not mix 8-column and 16-column rows in one file.
 
 | # | Field | Rule |
 |---|-------|------|
 | 1 | guid | Keep existing. New notes get a new 10-character Anki guid. |
 | 2 | notetype | `Farsi` |
-| 3 | deck | Keep the note's deck. New notes use `Farsi`. |
+| 3 | deck | New notes use `Farsi`. Existing notes keep their deck. Never change a note's deck in the import file. |
 | 4 | Farsi Transliteration | Lowercase spelling key. See below. |
 | 5 | English | Short gloss. Keep wording that is already right. |
 | 6 | Farsi Script | Normal Persian spelling, no vowel marks. |
@@ -152,10 +172,10 @@ When a new note is added, also add colloquially used pieces that are not already
 
 - Subword: `biparvaa` also adds `parvaa` (پروا). From دلتنگی enter `deltang`, and also add `tang`, because people say تنگ. دل is already a note, so it is not added again.
 - New prefix or suffix: add it once, in the tag inventory's shape (`bi-`, `be-`). Do not add a second note if that prefix is already there.
-- Compound verb, or a plain verb of the same root and the same idea: write it onto the base note's verb slot. The base stays the noun or adjective. `ghadam zadan` goes on `ghadam`. `baaridan` goes on `baaraan`, because rain and to rain are the same idea. Keep the base guid, deck, and `ScriptUnlocked`. A second verb on that word uses the Verb2 fields. A third verb stays its own note, with the verb in the verb slot and the main fields empty.
-- A verb with no base stays its own note, and its content goes in the verb slot, not the main fields. `raftan` is that shape. `bar daashtan` does not join the preposition `bar`, so it stays a verb-slot note too. `charkh` (wheel) does not join `charkhidan`. `baar` (time or turn) does not join `baaridan`. `sakht` and `doshvaar` stay the pair they already are. `ghahveh` does not join `ghahvei`.
+- Compound verb, or a plain verb of the same root and the same idea: write it onto the base note's verb slot. The base stays the noun or adjective. `ghadam zadan` goes on `ghadam`. `baaridan` goes on `baaraan`, because rain and to rain are the same idea. Keep the base guid, deck, and `ScriptUnlocked`. A second verb on that word uses the Verb2 fields. A third verb stays its own note, written into the main fields with tag `Verb`.
+- A verb with no base stays its own note. In `farsi_import.txt`, write it into the main fields with tag `Verb` so Anki's text import does not fail with an "empty first field" error. Then `python anki_unlock.py --verb-slots --apply` moves it into its own verb slot. `raftan` and `maandan` are that shape. `bar daashtan` does not join the preposition `bar`, so it stays a standalone verb note too. `charkh` (wheel) does not join `charkhidan`. `baar` (time or turn) does not join `baaridan`. `sakht` and `doshvaar` stay the pair they already are. `ghahveh` does not join `ghahvei`.
 - When the new word is a noun or adjective, check for a verb people actually use with it: a light-verb compound, or the same root and the same idea (`baaraan` / `baaridan`). If that verb is already a note, it belongs in this note's verb slot. If people use the verb and it is not a note yet, write it in the verb slot of this note. Do not give it a second guid.
-- When the new word is a verb, check for a base people actually say. If that base is already a note, write the verb into its verb slot. If the base is missing and people say it, the note's main fields are the base and the verb goes in the verb slot (`tark` / `tark kardan`). If there is no base, leave the main fields empty and put the verb in the verb slot.
+- When the new word is a verb, check for a base people actually say. If that base is already a note, write the verb into its verb slot. If the base is missing and people say it, the note's main fields are the base and the verb goes in the verb slot (`tark` / `tark kardan`). If there is no base, write the verb in the main fields with tag `Verb`, and explicitly remind the user to run `python anki_unlock.py --verb-slots --apply` after importing.
 - Ending `-i`, or another ending just as transparent: keep one note when the two words are the same idea. A noun and the adjective for that same thing, or the reverse, is one note, even when people say both often. Keep the form without `-i`. `zakhmi` is wounded, the same idea as `zakhm` (wound), so the note is `zakhm` / زخم. `bedehkaari` is debt, the same idea as `bedehkaar` (in debt), so the note is `bedehkaar` / بدهکار. `zibaayi` is the noun from `zibaa`, so the note is `zibaa`. `deltangi` is the noun from `deltang`, so the note is `deltang`. If the word being added is that same-idea form, enter the base instead. If the deck already has that form and not the base, rewrite the note to the base. If the base is already a note, do not add the derived form.
 - Keep both when the derived word is a new meaning, not the same idea in another part of speech. `ghahveh` is coffee and `ghahvei` is brown. `khaakestar` is ash and `khaakestari` is grey. `zendaan` is prison and `zendaani` is prisoner. Add the missing one. Do not rewrite the derived note into the base. A verb of the same idea and the same root is the verb-slot case above, not this one.
 
@@ -172,7 +192,7 @@ On each bad note:
 3. Make the script match those spellings. Persian ی and ک, not Arabic ي and ك. No extra spaces.
 4. Fill tags from the inventory in [reference.md](reference.md). A light-verb compound is `Verb`.
 5. Keep the English gloss. Extend it only when a second form makes the old gloss wrong. First letter capital. Verbs start with `To `. No trailing space.
-6. Write an eight-field row when the note has no verb. A verb uses the sixteen-field row. Keep the base guid when the verb joins that note. A verb with no base keeps its own guid and leaves the main fields empty. Preserve deck and ScriptUnlocked. Do not move a note between `Farsi` and `Farsi::Queue`.
+6. Write an eight-field row when the note has no verb. A verb uses the sixteen-field row. Keep the base guid when the verb joins that note. A verb with no base keeps its own guid and is written into the main fields with tag `Verb` (to avoid Anki's empty-first-field error). Preserve deck and ScriptUnlocked. Do not move a note between `Farsi` and `Farsi::Queue`.
 
 Do not delete a note the deck already had. Delete only a newly added note whose meaning is already covered, as in [Same meaning](#same-meaning). Do not reorder existing notes. Do not change a gloss that is already accurate. Do not set `ScriptUnlocked`. Do not put example sentences on vocab notes.
 
@@ -186,8 +206,10 @@ When the user also gives a list or a URL:
 2. Match notes already in Anki before adding. Match Persian spelling after unifying ی/ي and ک/ك and stripping diacritics, tatweel, and ZWNJ. Also match transliteration keys split on `~`, `/`, and `>`. A different word with the same meaning is not a new note: fold it onto the existing note with `/` or `~`. See [Same meaning](#same-meaning). Same spelling with a different meaning is a separate note.
 3. If the list only adds the spoken side of a note that is already there, update that note in the import. Do not add a duplicate.
 4. New notes go in the import, in list order. Deck `Farsi`. Empty `ScriptUnlocked`. New guid, unique among the import and the notes already in Anki. A noun or adjective with no verb is eight fields. A verb, or a word that has a verb slot, is sixteen fields.
-5. A verb that is the same idea and the same root is written onto the base note's verb slot, light verb or not. Keep the base guid. Before adding a noun or adjective, check for a verb people use with that word. Before adding a verb, check for a base people say. A missing base that people say becomes the main fields, with the verb in the verb slot. A verb with no base keeps its own guid, with empty main fields and the verb in the verb slot. A different idea or a different root stays apart. Do not invent an unrelated compound. Do add colloquially used subwords and new prefixes. If a listed word is only `-i`, or another ending just as transparent, and it is the same idea as the base, enter the base instead. If that word is a new meaning, keep it and add the base when people say the base. See [Pieces of a new word](#pieces-of-a-new-word).
+5. A verb that is the same idea and the same root is written onto the base note's verb slot, light verb or not. Keep the base guid. Before adding a noun or adjective, check for a verb people use with that word. Before adding a verb, check for a base people say. A missing base that people say becomes the main fields, with the verb in the verb slot. A verb with no base keeps its own guid, is written into the main fields with tag `Verb`, and requires running `python anki_unlock.py --verb-slots --apply` after import. A different idea or a different root stays apart. Do not invent an unrelated compound. Do add colloquially used subwords and new prefixes. If a listed word is only `-i`, or another ending just as transparent, and it is the same idea as the base, enter the base instead. If that word is a new meaning, keep it and add the base when people say the base. See [Pieces of a new word](#pieces-of-a-new-word).
 
 ## Report
 
 Tell the user the import path, how many notes you fixed, how many you added, and how many list words were already present. Say which same-meaning words were folded onto an existing note, whether the delimiter was `/` or `~`, and which new notes were deleted. Say which subwords or prefixes you added with the new words, which derived `-i` forms you rewrote to the base because they are the same idea, which you did not add for that reason, and which you kept because the derived word is a new meaning, and which surface forms you did not add because they are only a conjugation of a verb already in the deck. Name any older same-meaning pair you noticed and did not change. Give a few before → after examples. Mention transliterations that changed. Say how many fully locked cards you suspended. If new notes are not in Anki yet, say those cards get a blank front until they are suspended after import. Do not paste the deck. The user imports the file; do not import it for them.
+
+**MANDATORY USER REMINDER:** Whenever any standalone verb is written to `farsi_import.txt`, you MUST explicitly remind the user to run `python anki_unlock.py --verb-slots --apply` after importing into Anki, followed by `python anki_unlock.py --suspend-locked`.

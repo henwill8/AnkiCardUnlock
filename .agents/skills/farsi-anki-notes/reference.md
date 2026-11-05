@@ -7,7 +7,7 @@ Farsi            ← main deck; agent-added vocab goes here
 └── Queue        ← paced backlog
 ```
 
-New vocab import rows from this skill use `Farsi`. When fixing a note, keep its current deck. Searching or unlocking `deck:"Farsi"` includes `Farsi::Queue`.
+New vocab import rows use `Farsi`. When fixing a note, keep its current deck. Script **cards** on notes with `ScriptUnlocked` = `1` are moved to `Farsi::Queue` at the card level via AnkiConnect `changeDeck` after import — the note itself stays in `Farsi`. Searching or unlocking `deck:"Farsi"` includes `Farsi::Queue`.
 
 ## Tags already in the deck
 
