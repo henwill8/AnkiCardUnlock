@@ -40,19 +40,14 @@ from pathlib import Path
 
 ANKI_URL = "http://127.0.0.1:8765"
 VOCAB_MODEL = "Farsi"
-SENTENCE_MODEL = "Farsi Sentence"
 VOCAB_DECK = "Farsi"
-SENTENCE_DECK = "Farsi Sentences"
 SCRIPT_FIELD = "ScriptUnlocked"
-SENTENCE_FIELD = "SentenceUnlocked"
-SENTENCE_SCRIPT_FIELD = "SentenceScriptUnlocked"
 VERB_SCRIPT_FIELD = "VerbScriptUnlocked"
 VERB2_SCRIPT_FIELD = "Verb2ScriptUnlocked"
 SCRIPT_CARD_FIELDS = {
     SCRIPT_FIELD,
     VERB_SCRIPT_FIELD,
     VERB2_SCRIPT_FIELD,
-    SENTENCE_SCRIPT_FIELD,
 }
 LIGHT_VERBS = {
     "kardan",
@@ -97,7 +92,6 @@ PRACTICE_VOCAB_OUT = ROOT / "practice_vocab.txt"
 PRACTICE_GRAMMAR_OUT = ROOT / "practice_grammar.txt"
 PRACTICE_FOCUS_OUT = ROOT / "practice_focus.txt"
 DECK_INDEX_OUT = ROOT / "deck_index.txt"
-SENTENCES_INDEX_OUT = ROOT / "sentences_index.txt"
 CACHE_DIR = ROOT / ".cache"
 REPOSITION_ADDON = "anki_unlock_reposition"
 FOCUS_LIMIT = 40
@@ -342,10 +336,6 @@ def template_gate_field(model: str, name: str, html_sides: str) -> str | None:
         if SCRIPT_FIELD in html_sides or "script" in lowered:
             return SCRIPT_FIELD
         return None
-    if model == SENTENCE_MODEL:
-        if SENTENCE_SCRIPT_FIELD in html_sides or "script" in lowered:
-            return SENTENCE_SCRIPT_FIELD
-        return SENTENCE_FIELD
     return None
 
 
@@ -354,7 +344,7 @@ def load_template_info(
 ) -> dict[str, tuple[dict[int, str], list[str]]]:
     """Per model: card ordinal -> unlock field, and front templates in ord order."""
     info: dict[str, tuple[dict[int, str], list[str]]] = {}
-    for model in (VOCAB_MODEL, SENTENCE_MODEL):
+    for model in (VOCAB_MODEL,):
         if model not in models:
             continue
         templates = invoke("modelTemplates", modelName=model) or {}
@@ -580,11 +570,7 @@ def _script_ords_by_model() -> dict[str, set[int]]:
 
 
 def _card_is_script(card: dict, script_ords: dict[str, set[int]]) -> bool:
-    if card["deck"] == SENTENCE_DECK or card["deck"].startswith(SENTENCE_DECK + "::"):
-        model = SENTENCE_MODEL
-    else:
-        model = VOCAB_MODEL
-    return card["ord"] in script_ords.get(model, set())
+    return card["ord"] in script_ords.get(VOCAB_MODEL, set())
 
 
 def scatter_new_script_cards(card_ids: list[int] | None = None) -> int:
@@ -602,7 +588,7 @@ def scatter_new_script_cards(card_ids: list[int] | None = None) -> int:
     found = invoke(
         "findCards",
         query=(
-            f'(deck:"{VOCAB_DECK}" OR deck:"{SENTENCE_DECK}") '
+            f'deck:"{VOCAB_DECK}" '
             "(is:new OR is:buried)"
         ),
     ) or []
@@ -669,12 +655,9 @@ def sync_card_visibility(
 ) -> None:
     templates = load_template_info(models)
     vocab_raw = fetch_notes(f'deck:"{VOCAB_DECK}" note:"{VOCAB_MODEL}"')
-    sentences: list[dict] = []
-    if SENTENCE_MODEL in models:
-        sentences = fetch_notes(f'note:"{SENTENCE_MODEL}"')
     all_card_ids = [
         cid
-        for note in vocab_raw + sentences
+        for note in vocab_raw
         for cid in (note.get("cards") or [])
     ]
     cards_by_id = fetch_cards_by_id(all_card_ids)
@@ -682,7 +665,7 @@ def sync_card_visibility(
     just_unsuspended: set[int] = set()
     just_suspended: set[int] = set()
     script_new: list[int] = []
-    for model, notes in ((VOCAB_MODEL, vocab_raw), (SENTENCE_MODEL, sentences)):
+    for model, notes in ((VOCAB_MODEL, vocab_raw),):
         if not notes or model not in templates:
             continue
         gates, fronts = templates[model]
@@ -872,10 +855,7 @@ def ensure_unlock_fields(models: list[str] | None = None) -> list[str]:
     models = models if models is not None else invoke("modelNames")
     ensure_field(VOCAB_MODEL, SCRIPT_FIELD)
     ensure_verb_model()
-    if SENTENCE_MODEL in models:
-        sentence_fields = invoke("modelFieldNames", modelName=SENTENCE_MODEL)
-        sentence_fields = ensure_field(SENTENCE_MODEL, SENTENCE_FIELD, sentence_fields)
-        ensure_field(SENTENCE_MODEL, SENTENCE_SCRIPT_FIELD, sentence_fields)
+
     return models
 
 
@@ -1239,63 +1219,21 @@ def render_deck_index(rows: list[tuple[str, list[str], str, str, str]]) -> str:
     return header + "".join(line + "\n" for line in body_lines)
 
 
-def render_sentences_index(rows: list[tuple[str, list[str], str, str, str]]) -> str:
-    body_lines: list[str] = []
-    for guid, fields, tags, model, _deck in rows:
-        if model != SENTENCE_MODEL:
-            continue
-        translit = plain_field(fields[0]) if fields else ""
-        english = plain_field(fields[1]) if len(fields) > 1 else ""
-        script = plain_field(fields[2]) if len(fields) > 2 else ""
-        tag_s = " ".join(tags.split())
-        body_lines.append("\t".join([guid, translit, english, script, tag_s]))
-    body_lines.sort(key=lambda line: line.split("\t", 2)[1].casefold())
-    header = (
-        "# sentences_index\n"
-        "# source: anki_unlock.py --export-indexes\n"
-        f"# notes: {len(body_lines)}\n"
-        "# columns: guid, transliteration, english, script, tags\n"
-        "# Prefer this file over AnkiConnect notesInfo when adding sentences.\n"
-    )
-    return header + "".join(line + "\n" for line in body_lines)
 
 
-def export_indexes(
-    deck_out: Path | None = None,
-    sentences_out: Path | None = None,
-) -> tuple[int, int]:
-    """Write compact vocab/sentence indexes with guids (via deck package export)."""
+def export_indexes(deck_out: Path | None = None) -> int:
+    """Write compact vocab deck_index with guids (via deck package export)."""
     cache = CACHE_DIR
     cache.mkdir(parents=True, exist_ok=True)
     vocab_pkg = cache / "_export_farsi.apkg"
-    sent_pkg = cache / "_export_farsi_sentences.apkg"
     export_deck_package(VOCAB_DECK, vocab_pkg)
     vocab_rows = read_notes_from_apkg(vocab_pkg)
     deck_text = render_deck_index(vocab_rows)
     deck_path = deck_out or DECK_INDEX_OUT
     deck_path.write_text(deck_text, encoding="utf-8", newline="\n")
     vocab_n = sum(1 for line in deck_text.splitlines() if line and not line.startswith("#"))
-
-    sent_n = 0
-    models = invoke("modelNames") or []
-    sent_path = sentences_out or SENTENCES_INDEX_OUT
-    if SENTENCE_MODEL in models:
-        export_deck_package(SENTENCE_DECK, sent_pkg)
-        sent_rows = read_notes_from_apkg(sent_pkg)
-        sent_text = render_sentences_index(sent_rows)
-        sent_path.write_text(sent_text, encoding="utf-8", newline="\n")
-        sent_n = sum(
-            1 for line in sent_text.splitlines() if line and not line.startswith("#")
-        )
-    else:
-        sent_path.write_text(
-            "# sentences_index\n# sentence model not found\n",
-            encoding="utf-8",
-            newline="\n",
-        )
     print(f"Deck index: {vocab_n} notes -> {deck_path}")
-    print(f"Sentences index: {sent_n} notes -> {sent_path}")
-    return vocab_n, sent_n
+    return vocab_n
 
 
 def flush_updates(updates: list[dict]) -> None:
@@ -1365,60 +1303,6 @@ def unlock(
         )
 
     print(f"ScriptUnlocked newly set: {script_on}")
-
-    sentences: list[dict] = []
-    unlocked = script_unlocked = script_relocked = locked = skipped = 0
-    missing_report: list[tuple[str, list[str]]] = []
-
-    if SENTENCE_MODEL not in models:
-        print("Sentence model not found; run with --setup and import Farsi_Sentences.txt")
-    else:
-        sentences = fetch_notes(f'note:"{SENTENCE_MODEL}"')
-        for note in sentences:
-            reqs = parse_req_tags(note.get("tags") or [])
-            fmap = field_map(note)
-            if not reqs:
-                skipped += 1
-                continue
-
-            ready_ok, mature_ok, missing = eval_reqs(reqs, index)
-            if missing and len(missing_report) < MISSING_REPORT_LIMIT:
-                missing_report.append((fmap.get("Farsi Transliteration", "")[:40], missing))
-
-            pending: dict[str, str] = {}
-            if not ready_ok:
-                locked += 1
-            elif SENTENCE_FIELD in fmap and fmap.get(SENTENCE_FIELD, "") != "1":
-                pending[SENTENCE_FIELD] = "1"
-                unlocked += 1
-            if SENTENCE_SCRIPT_FIELD in fmap:
-                current = fmap.get(SENTENCE_SCRIPT_FIELD, "")
-                if mature_ok and current != "1":
-                    pending[SENTENCE_SCRIPT_FIELD] = "1"
-                    script_unlocked += 1
-                elif not mature_ok and current == "1":
-                    pending[SENTENCE_SCRIPT_FIELD] = ""
-                    script_relocked += 1
-            if pending:
-                updates.append(
-                    {
-                        "action": "updateNoteFields",
-                        "params": {"note": {"id": note["noteId"], "fields": pending}},
-                    }
-                )
-
-    flush_updates(updates)
-
-    if SENTENCE_MODEL in models:
-        print(
-            f"Sentences: translit newly unlocked={unlocked}; "
-            f"script newly unlocked={script_unlocked}; script relocked={script_relocked}; "
-            f"still locked={locked}; no req tags={skipped}"
-        )
-        if missing_report:
-            print("Examples with unknown req:: keys (fix tags if needed):")
-            for persian, miss in missing_report:
-                print(f"  {persian!r} → missing {miss}")
 
     sync_card_visibility(models)
 
@@ -1952,7 +1836,7 @@ def main():
     parser.add_argument(
         "--export-indexes",
         action="store_true",
-        help="Write compact deck_index.txt and sentences_index.txt, then exit",
+        help="Write compact deck_index.txt, then exit",
     )
     parser.add_argument(
         "--vocab-out",
@@ -1963,11 +1847,6 @@ def main():
         "--deck-index-out",
         default=str(DECK_INDEX_OUT),
         help="Compact vocab index path (with --export-indexes)",
-    )
-    parser.add_argument(
-        "--sentences-index-out",
-        default=str(SENTENCES_INDEX_OUT),
-        help="Compact sentence index path (with --export-indexes)",
     )
     parser.add_argument(
         "--merge-verbs",
@@ -1992,10 +1871,7 @@ def main():
         place_own_verbs(apply=args.apply)
         return
     if args.export_indexes:
-        export_indexes(
-            deck_out=Path(args.deck_index_out),
-            sentences_out=Path(args.sentences_index_out),
-        )
+        export_indexes(deck_out=Path(args.deck_index_out))
         return
     unlock(
         mature_days=args.mature_days,
