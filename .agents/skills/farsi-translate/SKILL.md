@@ -10,11 +10,19 @@ description: >-
 
 # Farsi Translate & Card Creation
 
-Translate between English and colloquial Tehrani Farsi in either direction:
-1. **English → Farsi:** Translate the user's English sentences into natural, colloquial Tehrani Farsi.
-2. **Farsi → English:** Translate incoming Farsi messages, texts, or replies (e.g. from messages or conversations) into natural English.
+## Interaction Modes
 
-In either direction, break down the grammar, identify any words or affixes the user does not yet know, and ensure all unknown base words, missing subwords, and active compound verbs are moved or added to their Anki deck via `farsi_import.txt`.
+Determine which mode applies before doing anything else:
+
+| Input | Mode | Action |
+|---|---|---|
+| **"Quoted English"** | English → Farsi | Translate into colloquial Tehrani Farsi, break down grammar, add unknown words to Anki |
+| **Plain English** | Conversation | Answer the question or comment directly — no translation or Anki update needed |
+| **Farsi script or transliteration (unquoted)** | Farsi → English | Translate into natural English (treat as a message from the user's girlfriend), break down grammar, add unknown words to Anki |
+
+---
+
+In translation modes (quoted English or incoming Farsi), break down the grammar, identify any words or affixes the user does not yet know, and ensure all unknown base words, missing subwords, and active compound verbs are moved or added to their Anki deck via `farsi_import.txt`.
 
 ## Workflow Overview
 
