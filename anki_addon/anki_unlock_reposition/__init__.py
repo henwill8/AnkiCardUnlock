@@ -108,6 +108,29 @@ def _merge_related_verbs(self, moves, edits, delete, undo=None):
     )
 
 
+def _learning_delays_for_card(col, card):
+    """Return learning delays in seconds for the card based on its deck config."""
+    try:
+        did = card.odid or card.did
+        dconf = None
+        if hasattr(col.decks, "config_dict_for_deck_id"):
+            dconf = col.decks.config_dict_for_deck_id(did)
+        if not dconf and hasattr(col.decks, "get"):
+            deck = col.decks.get(did)
+            if deck:
+                preset_id = deck.get("presetId") or deck.get("conf")
+                if preset_id and hasattr(col.decks, "get_config"):
+                    dconf = col.decks.get_config(int(preset_id))
+        if not dconf:
+            return []
+        is_lapse = (card.type == 3) or (getattr(card, "lapses", 0) > 0 and card.type == 1)
+        key = "lapse" if is_lapse else "new"
+        delays = dconf.get(key, {}).get("delays") or []
+        return [int(round(float(d) * 60)) for d in delays]
+    except Exception:
+        return []
+
+
 def _repair_desynced_cards_impl(col):
     """Reconcile cards whose scheduling was rolled back or desynced behind revlog."""
     cutoff_ms = (int(time.time()) - 259200) * 1000  # last 3 days
@@ -141,31 +164,104 @@ def _repair_desynced_cards_impl(col):
 
         needs_fix = False
 
-        if ivl < 0:
-            # Intraday learning step (ivl in negative seconds, e.g. -5400s = 90m)
-            expected_due = rev_time + abs(ivl)
-            # If card is in learning queue and due is earlier than expected due
-            if card.queue == 1 and card.due < expected_due:
-                card.due = expected_due
-                card.type = 1
-                card.queue = 1
-                card.ivl = 0
-                card.reps = rev_count
-                needs_fix = True
-            elif card.reps < rev_count:
-                card.reps = rev_count
-                needs_fix = True
-        elif ivl > 0:
+        if ivl > 0:
             # Graduated / Review card (ivl in positive days)
             # If card is stuck in learning queue or ivl / reps doesn't match
-            if card.queue != 2 or card.type != 2 or card.ivl != ivl or card.reps < rev_count:
+            if (
+                card.queue != 2
+                or card.type != 2
+                or card.ivl != ivl
+                or card.reps < rev_count
+                or card.left != 0
+            ):
                 card.type = 2
                 card.queue = 2
                 card.ivl = ivl
                 card.reps = rev_count
+                card.left = 0
                 rev_day = int((rev_time - col.crt) / 86400)
                 card.due = rev_day + ivl
                 needs_fix = True
+
+        elif ivl < 0:
+            # Intraday learning step (ivl in negative seconds, e.g. -5400s = 90m)
+            step_delays = _learning_delays_for_card(col, card)
+
+            # Check if this card completed its final learning step and should have graduated
+            should_graduate = False
+            if step_delays:
+                final_delay = step_delays[-1]
+                if ease >= 3 and abs(ivl) >= final_delay:
+                    prev_revs = col.db.all(
+                        "SELECT id, ease, ivl FROM revlog WHERE cid = ? AND id < ? ORDER BY id DESC LIMIT 1",
+                        cid,
+                        max_id,
+                    )
+                    if prev_revs and abs(prev_revs[0][2]) >= final_delay:
+                        should_graduate = True
+
+            if should_graduate:
+                did = card.odid or card.did
+                dconf = None
+                if hasattr(col.decks, "config_dict_for_deck_id"):
+                    dconf = col.decks.config_dict_for_deck_id(did)
+                if not dconf and hasattr(col.decks, "get"):
+                    deck = col.decks.get(did)
+                    preset_id = deck.get("presetId") or deck.get("conf") if deck else None
+                    if preset_id and hasattr(col.decks, "get_config"):
+                        dconf = col.decks.get_config(int(preset_id))
+
+                if card.type == 3:
+                    min_int = (dconf or {}).get("lapse", {}).get("minInt", 1)
+                    grad_ivl = max(1, int(card.ivl) if card.ivl > 0 else int(min_int))
+                else:
+                    ints = (dconf or {}).get("new", {}).get("ints") or [1, 4, 0]
+                    grad_ivl = int(ints[0]) if ints else 1
+
+                rev_day = int((rev_time - col.crt) / 86400)
+                expected_due = rev_day + grad_ivl
+
+                if (
+                    card.queue != 2
+                    or card.type != 2
+                    or card.left != 0
+                    or card.ivl != grad_ivl
+                ):
+                    card.type = 2
+                    card.queue = 2
+                    card.ivl = grad_ivl
+                    card.left = 0
+                    card.reps = max(card.reps, rev_count)
+                    if not card.factor:
+                        card.factor = int((dconf or {}).get("new", {}).get("initialFactor") or 2500)
+                    card.due = expected_due
+                    needs_fix = True
+            else:
+                expected_due = rev_time + abs(ivl)
+                if card.queue == 1 and card.due < expected_due:
+                    card.due = expected_due
+                    card.type = 1
+                    card.queue = 1
+                    card.ivl = 0
+                    needs_fix = True
+
+                if step_delays:
+                    abs_ivl = abs(ivl)
+                    if abs_ivl >= step_delays[-1]:
+                        step_idx = len(step_delays) - 1
+                    else:
+                        step_idx = min(
+                            range(len(step_delays)),
+                            key=lambda i: abs(step_delays[i] - abs_ivl),
+                        )
+                    expected_left = len(step_delays) - step_idx
+                    if card.left != expected_left:
+                        card.left = expected_left
+                        needs_fix = True
+
+                if card.reps < rev_count:
+                    card.reps = rev_count
+                    needs_fix = True
 
         if needs_fix:
             repaired.append(card)
@@ -228,7 +324,7 @@ def _on_profile_open():
 
 
 def _on_reviewer_will_show_question(card):
-    """Guard against presenting a learning card before its interval has actually elapsed."""
+    """Guard against presenting a learning card before its interval has actually elapsed and reconcile left."""
     try:
         from aqt import mw
         if not mw or not mw.col or not card:
@@ -244,9 +340,27 @@ def _on_reviewer_will_show_question(card):
                     rev_time = int(rev_id / 1000)
                     expected_due = rev_time + abs(ivl)
                     now = int(time.time())
+                    changed = False
                     if now < expected_due:
                         card.due = expected_due
+                        changed = True
+                    step_delays = _learning_delays_for_card(mw.col, card)
+                    if step_delays:
+                        abs_ivl = abs(ivl)
+                        if abs_ivl >= step_delays[-1]:
+                            step_idx = len(step_delays) - 1
+                        else:
+                            step_idx = min(
+                                range(len(step_delays)),
+                                key=lambda i: abs(step_delays[i] - abs_ivl),
+                            )
+                        expected_left = len(step_delays) - step_idx
+                        if card.left != expected_left:
+                            card.left = expected_left
+                            changed = True
+                    if changed:
                         mw.col.update_cards([card])
+                    if now < expected_due:
                         # Card is not due yet; advance to next
                         if hasattr(mw, "reviewer") and hasattr(mw.reviewer, "nextCard"):
                             mw.reviewer.nextCard()
