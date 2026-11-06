@@ -648,6 +648,19 @@ def ensure_reposition_addon() -> None:
         )
 
 
+def repair_desynced_cards() -> int:
+    """Invoke AnkiConnect to reconcile any cards whose scheduling was rolled back."""
+    ensure_reposition_addon()
+    try:
+        res = invoke("repairDesyncedCards")
+        if isinstance(res, int) and res > 0:
+            print(f"Reconciled {res} desynced card(s)")
+            return res
+    except Exception:
+        pass
+    return 0
+
+
 def sync_card_visibility(
     models: list[str],
     *,
@@ -1276,6 +1289,7 @@ def unlock(
     vocab_out: str | Path | None = None,
     suspend_only: bool = False,
 ) -> None:
+    repair_desynced_cards()
     if suspend_only:
         sync_card_visibility(invoke("modelNames"), unsuspend=False)
         print("Done.")
@@ -1863,7 +1877,17 @@ def main():
         action="store_true",
         help="Move verbs that are their own note into the verb slot. With --apply, keep their history",
     )
+    parser.add_argument(
+        "--repair-desynced",
+        action="store_true",
+        help="Reconcile cards whose scheduling was rolled back or desynced behind revlog",
+    )
     args = parser.parse_args()
+    if args.repair_desynced:
+        count = repair_desynced_cards()
+        if count == 0:
+            print("All cards are in sync with revlog.")
+        return
     if args.merge_verbs:
         merge_related_verbs(apply=args.apply)
         return
