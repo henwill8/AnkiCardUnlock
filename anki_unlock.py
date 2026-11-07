@@ -661,6 +661,55 @@ def repair_desynced_cards() -> int:
     return 0
 
 
+def move_script_cards_to_queue(
+    notes: list[dict],
+    cards_by_id: dict[int, dict],
+    ord_gates: dict[int, str],
+    suspended_ids: set[int],
+    unsuspended_ids: set[int],
+    target_deck: str = f"{VOCAB_DECK}::Queue",
+) -> list[int]:
+    """Move unlocked script cards to the queue deck at the card level.
+
+    A script card whose unlock field is '1' and which is not suspended
+    must live in target_deck, even if the parent note is in VOCAB_DECK.
+    The note itself remains in its original deck.
+    """
+    to_move: list[int] = []
+    for note in notes:
+        fmap = field_map(note)
+        for cid in note.get("cards") or []:
+            card = cards_by_id.get(cid)
+            if not card:
+                continue
+            ord_ = card.get("ord", 0)
+            gate = ord_gates.get(ord_)
+            if gate not in SCRIPT_CARD_FIELDS:
+                continue
+            if fmap.get(gate, "") != "1":
+                continue
+            is_suspended = (cid in suspended_ids) or (
+                card.get("queue") == -1 and cid not in unsuspended_ids
+            )
+            if is_suspended:
+                continue
+            if card.get("deckName") == target_deck:
+                continue
+            to_move.append(cid)
+
+    if not to_move:
+        return []
+
+    for i in range(0, len(to_move), 500):
+        chunk = to_move[i : i + 500]
+        invoke("changeDeck", cards=chunk, deck=target_deck)
+    for cid in to_move:
+        if cid in cards_by_id:
+            cards_by_id[cid]["deckName"] = target_deck
+
+    return to_move
+
+
 def sync_card_visibility(
     models: list[str],
     *,
@@ -678,6 +727,7 @@ def sync_card_visibility(
     just_unsuspended: set[int] = set()
     just_suspended: set[int] = set()
     script_new: list[int] = []
+    moved_to_queue: list[int] = []
     for model, notes in ((VOCAB_MODEL, vocab_raw),):
         if not notes or model not in templates:
             continue
@@ -700,7 +750,16 @@ def sync_card_visibility(
         fully_locked += locked_n
         just_unsuspended.update(unsuspended_ids)
         just_suspended.update(suspended_ids)
-        if unsuspend:
+        moved_to_queue.extend(
+            move_script_cards_to_queue(
+                notes,
+                cards_by_id,
+                gates,
+                just_suspended,
+                just_unsuspended,
+            )
+        )
+        if unsuspend or moved_to_queue:
             script_new.extend(
                 new_script_card_ids(
                     notes, cards_by_id, gates, just_unsuspended, just_suspended
@@ -710,7 +769,9 @@ def sync_card_visibility(
         f"Visibility: suspended={suspended}; unsuspended={unsuspended}; "
         f"fully locked notes={fully_locked}"
     )
-    if unsuspend:
+    if moved_to_queue:
+        print(f"Moved {len(moved_to_queue)} script card(s) to {VOCAB_DECK}::Queue")
+    if unsuspend or moved_to_queue:
         ensure_reposition_addon()
         try:
             moved = scatter_new_script_cards(script_new)
