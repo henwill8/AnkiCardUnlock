@@ -323,7 +323,7 @@ def _on_profile_open():
         print(f"anki_unlock_reposition: error on profile open: {e}")
 
 
-def _on_reviewer_will_show_question(card):
+def _on_reviewer_did_show_question(card):
     """Guard against presenting a learning card before its interval has actually elapsed and reconcile left."""
     try:
         from aqt import mw
@@ -413,4 +413,5 @@ def _install() -> None:
 gui_hooks.profile_did_open.append(_install)
 gui_hooks.profile_did_open.append(_on_profile_open)
 gui_hooks.sync_did_finish.append(_on_sync_finished)
-gui_hooks.reviewer_will_show_question.append(_on_reviewer_will_show_question)
+if hasattr(gui_hooks, "reviewer_did_show_question"):
+    gui_hooks.reviewer_did_show_question.append(_on_reviewer_did_show_question)
