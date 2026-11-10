@@ -17,8 +17,8 @@ together at the earliest sibling's place, so a card shifted by a merge comes
 back beside the one that stayed. A note that already has a learned card
 moves to the front of that queue. Script cards are placed after that order
 is set, in the gaps through the whole queue, not inside a sibling group.
-Siblings that shared one new-card number get separate numbers, and the cards
-inside each block are shuffled.
+Siblings that shared one new-card number get separate numbers, ordered:
+Base FA->EN, Base EN->FA, Verb FA->EN, Verb EN->FA.
 """
 
 from __future__ import annotations
@@ -493,7 +493,7 @@ def _script_blocks(cards: list[dict]) -> list[list[dict]]:
         by_note.setdefault(card["note"], []).append(card)
     blocks = []
     for group in by_note.values():
-        random.shuffle(group)
+        group.sort(key=lambda card: (card["ord"], card["id"]))
         blocks.append(group)
     random.shuffle(blocks)
     return blocks
@@ -581,7 +581,7 @@ def scatter_new_script_cards(card_ids: list[int] | None = None) -> int:
     the front, in the order those notes already had. Script cards are placed
     after that order is set, spaced through the gaps of the whole queue, so
     they are not inside a sibling group. Each card then gets its own
-    new-card number, and the cards inside each block are shuffled.
+    new-card number, ordered: Base FA->EN, Base EN->FA, Verb FA->EN, Verb EN->FA.
     """
     moving = set(dict.fromkeys(card_ids or []))
     script_ords = _script_ords_by_model()
@@ -607,7 +607,7 @@ def scatter_new_script_cards(card_ids: list[int] | None = None) -> int:
         rest = [card for card in others if card["note"] not in learned]
         fixed = _cluster_note_blocks(front) + _cluster_note_blocks(rest)
         for block in fixed:
-            random.shuffle(block)
+            block.sort(key=lambda card: (card["ord"], card["id"]))
         sequence = _place_script_blocks(fixed, scripts)
         ordered = [card["id"] for card in sequence]
         if not ordered:
