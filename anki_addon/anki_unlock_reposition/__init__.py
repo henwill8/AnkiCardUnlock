@@ -1,4 +1,4 @@
-"""AnkiConnect action that sets the order of new cards and reconciles desynced cards."""
+"""AnkiConnect action that sets the order of new cards and graduates stuck learning cards."""
 
 import sys
 import time
@@ -132,7 +132,11 @@ def _learning_delays_for_card(col, card):
 
 
 def _repair_desynced_cards_impl(col):
-    """Reconcile cards whose scheduling was rolled back or desynced behind revlog."""
+    """Graduate cards that completed learning steps but remain stuck in learning queue.
+
+    Once a card has graduated (card.type == 2 and card.queue == 2), it is handed
+    off to FSRS and will never be modified here.
+    """
     cutoff_ms = (int(time.time()) - 259200) * 1000  # last 3 days
     rows = col.db.all(
         """
@@ -153,6 +157,14 @@ def _repair_desynced_cards_impl(col):
         except Exception:
             continue
 
+        # Suspended cards stay suspended
+        if card.queue == -1:
+            continue
+
+        # Once handed off to FSRS (graduated review card), do not touch under any circumstance!
+        if card.type == 2 and card.queue in (2, -2, -3):
+            continue
+
         last_rev = col.db.first(
             "SELECT id, ease, ivl, lastIvl, factor, type FROM revlog WHERE id = ?",
             max_id,
@@ -165,29 +177,20 @@ def _repair_desynced_cards_impl(col):
         needs_fix = False
 
         if ivl > 0:
-            # Graduated / Review card (ivl in positive days)
-            # If card is stuck in learning queue or ivl / reps doesn't match
-            if (
-                card.queue != 2
-                or card.type != 2
-                or card.ivl != ivl
-                or card.reps < rev_count
-                or card.left != 0
-            ):
-                card.type = 2
-                card.queue = 2
-                card.ivl = ivl
-                card.reps = rev_count
-                card.left = 0
-                rev_day = int((rev_time - col.crt) / 86400)
-                card.due = rev_day + ivl
-                needs_fix = True
+            # Last review graduated the card (positive interval in days), but it is stuck in learning queue
+            card.type = 2
+            card.queue = 2
+            card.ivl = ivl
+            card.left = 0
+            card.reps = max(card.reps, rev_count)
+            rev_day = int((rev_time - col.crt) / 86400)
+            card.due = rev_day + ivl
+            needs_fix = True
 
         elif ivl < 0:
             # Intraday learning step (ivl in negative seconds, e.g. -5400s = 90m)
             step_delays = _learning_delays_for_card(col, card)
 
-            # Check if this card completed its final learning step and should have graduated
             should_graduate = False
             if step_delays:
                 final_delay = step_delays[-1]
@@ -221,21 +224,15 @@ def _repair_desynced_cards_impl(col):
                 rev_day = int((rev_time - col.crt) / 86400)
                 expected_due = rev_day + grad_ivl
 
-                if (
-                    card.queue != 2
-                    or card.type != 2
-                    or card.left != 0
-                    or card.ivl != grad_ivl
-                ):
-                    card.type = 2
-                    card.queue = 2
-                    card.ivl = grad_ivl
-                    card.left = 0
-                    card.reps = max(card.reps, rev_count)
-                    if not card.factor:
-                        card.factor = int((dconf or {}).get("new", {}).get("initialFactor") or 2500)
-                    card.due = expected_due
-                    needs_fix = True
+                card.type = 2
+                card.queue = 2
+                card.ivl = grad_ivl
+                card.left = 0
+                card.reps = max(card.reps, rev_count)
+                if not card.factor:
+                    card.factor = int((dconf or {}).get("new", {}).get("initialFactor") or 2500)
+                card.due = expected_due
+                needs_fix = True
             else:
                 expected_due = rev_time + abs(ivl)
                 if card.queue == 1 and card.due < expected_due:
@@ -267,7 +264,7 @@ def _repair_desynced_cards_impl(col):
             repaired.append(card)
 
     if repaired:
-        undo = col.add_custom_undo_entry("Repair desynced cards")
+        undo = col.add_custom_undo_entry("Graduate stuck learning cards")
         changes = col.update_cards(repaired)
         col.merge_undo_entries(undo)
         return len(repaired)
@@ -288,27 +285,14 @@ def _repair_desynced_cards(self):
     return _repair_action(self, {})
 
 
-_syncing_repair = False
-
-
 def _on_sync_finished():
-    global _syncing_repair
-    if _syncing_repair:
-        _syncing_repair = False
-        return
     try:
         from aqt import mw
         if mw and mw.col:
             count = _repair_desynced_cards_impl(mw.col)
             if count > 0:
-                print(f"anki_unlock_reposition: Reconciled {count} desynced card(s) after sync")
-                _syncing_repair = True
-                try:
-                    mw.on_sync()
-                except Exception:
-                    _syncing_repair = False
+                print(f"anki_unlock_reposition: Graduated {count} stuck card(s) after sync")
     except Exception as e:
-        _syncing_repair = False
         print(f"anki_unlock_reposition: error in sync reconciler: {e}")
 
 
@@ -318,54 +302,9 @@ def _on_profile_open():
         if mw and mw.col:
             count = _repair_desynced_cards_impl(mw.col)
             if count > 0:
-                print(f"anki_unlock_reposition: Reconciled {count} desynced card(s) on profile open")
+                print(f"anki_unlock_reposition: Graduated {count} stuck card(s) on profile open")
     except Exception as e:
         print(f"anki_unlock_reposition: error on profile open: {e}")
-
-
-def _on_reviewer_did_show_question(card):
-    """Guard against presenting a learning card before its interval has actually elapsed and reconcile left."""
-    try:
-        from aqt import mw
-        if not mw or not mw.col or not card:
-            return
-        if card.queue == 1:
-            last_rev = mw.col.db.first(
-                "SELECT id, ivl FROM revlog WHERE cid = ? ORDER BY id DESC LIMIT 1",
-                card.id,
-            )
-            if last_rev:
-                rev_id, ivl = last_rev
-                if ivl < 0:
-                    rev_time = int(rev_id / 1000)
-                    expected_due = rev_time + abs(ivl)
-                    now = int(time.time())
-                    changed = False
-                    if now < expected_due:
-                        card.due = expected_due
-                        changed = True
-                    step_delays = _learning_delays_for_card(mw.col, card)
-                    if step_delays:
-                        abs_ivl = abs(ivl)
-                        if abs_ivl >= step_delays[-1]:
-                            step_idx = len(step_delays) - 1
-                        else:
-                            step_idx = min(
-                                range(len(step_delays)),
-                                key=lambda i: abs(step_delays[i] - abs_ivl),
-                            )
-                        expected_left = len(step_delays) - step_idx
-                        if card.left != expected_left:
-                            card.left = expected_left
-                            changed = True
-                    if changed:
-                        mw.col.update_cards([card])
-                    if now < expected_due:
-                        # Card is not due yet; advance to next
-                        if hasattr(mw, "reviewer") and hasattr(mw.reviewer, "nextCard"):
-                            mw.reviewer.nextCard()
-    except Exception:
-        pass
 
 
 def _legacy_class(ac):
@@ -413,5 +352,3 @@ def _install() -> None:
 gui_hooks.profile_did_open.append(_install)
 gui_hooks.profile_did_open.append(_on_profile_open)
 gui_hooks.sync_did_finish.append(_on_sync_finished)
-if hasattr(gui_hooks, "reviewer_did_show_question"):
-    gui_hooks.reviewer_did_show_question.append(_on_reviewer_did_show_question)
