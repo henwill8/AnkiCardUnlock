@@ -62,9 +62,9 @@ Inspect the local index and practice dumps directly on disk (do not query AnkiCo
 Always inspect these local text files directly so checks run automatically without requiring confirmation prompts.
 
 For every content word in the translation:
-1. **Already Learned (`learned` / `mature` in `learned_vocab.txt`):** The user knows it.
-2. **In `Farsi::Queue` (in `deck_index.txt`):** Move it to `Farsi` by writing/updating the note in `farsi_import.txt` with deck set to `Farsi`.
-3. **Not in `deck_index.txt`:** Create a new note in `farsi_import.txt` following `farsi-anki-notes` specifications.
+1. **Already Learned (`learned` / `mature` in `learned_vocab.txt`):** The user knows it. If updating fields (e.g. adding missing verb compounds), keep its existing deck — notes in `Farsi::Queue` do NOT have to be moved if the cards are already learned.
+2. **Unlearned in `Farsi::Queue` (in `deck_index.txt`):** Anki text import does not move existing cards between decks (the `#deck` column only sets the deck for new notes). To move an existing note from `Farsi::Queue` to `Farsi`, move it in Anki Desktop (Browse → `Ctrl+D` → `Farsi`) or via AnkiConnect `changeDeck`.
+3. **Not in `deck_index.txt`:** Create a new note in `farsi_import.txt` with deck set to `Farsi` following `farsi-anki-notes` specifications.
 
 ---
 
@@ -92,7 +92,7 @@ Follow the rules in `farsi-anki-notes` (`SKILL.md` and `reference.md`):
   #tags column:16
   ```
 * Columns:
-  1. `guid`: New unique 10-character Anki guid (using digits, letters, and Anki punctuation: `!#$%&*+-.:;=?@[]^_`{|}~`).
+  1. `guid`: New unique 10-character Anki guid (using digits, letters, and Anki punctuation: `!#$%&*+-.:;=?@[]^_`{|}~`; must never start with `#` as Anki treats lines starting with `#` as comments and skips them).
   2. `notetype`: `Farsi`
   3. `deck`: `Farsi`
   4. `Farsi Transliteration`: Lowercase, standardized key (`u`, `i`, `aa`, `a`, `o`, `e`, `~` for formal ~ spoken).
@@ -113,6 +113,11 @@ Follow the rules in `farsi-anki-notes` (`SKILL.md` and `reference.md`):
   - If a base noun/adjective exists in the deck (e.g. `ghabul` exists and adding `ghabul daashtan`), update the existing base note row in `farsi_import.txt` by populating its `Verb Transliteration` / `Verb English` / `Verb Script` fields (or Verb 2).
   - If the verb is a standalone verb with NO base noun (e.g. `maandan ~ mundan > maan ~ mun`, `raftan > rav ~ ro`): write it into the main fields (`Farsi Transliteration`, `English`, `Farsi Script`), leave verb columns empty, and tag `Verb`. Anki GUI import strictly requires that the first mapped field (`Farsi Transliteration`) cannot be blank.
   - **MANDATORY USER REMINDER:** Whenever a standalone verb is emitted into `farsi_import.txt`, you MUST explicitly remind the user to run `python anki_unlock.py --verb-slots --apply` after importing into Anki, which moves the verb into its proper verb slot and clears the main fields.
+  - **Merging split verb and base notes (keeping review history):** If a verb was previously created as a separate standalone verb note and its base noun/adjective also exists as a note (e.g. `donbaal` and `donbaal kardan`), do **NOT** merge them by re-adding the verb to `farsi_import.txt` and deleting the old note (which deletes the cards and wipes review history). Instead, run:
+    ```powershell
+    python anki_unlock.py --merge-verbs --apply
+    ```
+    This invokes the add-on's `mergeRelatedVerbs` action, which re-points the existing verb cards to the base note's verb slot and keeps card review history (intervals, reps, revlog) completely intact. Ensure the base note has a content tag (`Noun` or `adjective`).
 
 ---
 

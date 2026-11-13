@@ -29,7 +29,7 @@ Study and browse `Farsi`. `anki_unlock.py` searches `deck:"Farsi"`, which includ
 | Note | Deck |
 |------|------|
 | New vocab from this skill / import | `Farsi` |
-| Existing vocab being fixed | Keep that note's deck. Never move a note between `Farsi` and `Farsi::Queue`. |
+| Existing vocab being fixed | Keep that note's deck. Anki's text import does not change the deck of an existing note (the `#deck` column only sets the deck for new notes). To move an existing note from `Farsi::Queue` to `Farsi`, move its cards in Anki Desktop (Browse → `Ctrl+D` → `Farsi`) or use AnkiConnect `changeDeck`. |
 
 Script **cards** (not notes) on a note whose `ScriptUnlocked` is `1` are moved to `Farsi::Queue` at the card level via AnkiConnect `changeDeck`. The note itself stays in whatever deck it is in. See [Script card placement](#script-card-placement).
 
@@ -98,7 +98,7 @@ Eight tab-separated fields when the note has no verb. Anki maps columns 4–7 on
 
 | # | Field | Rule |
 |---|-------|------|
-| 1 | guid | Keep existing. New notes get a new 10-character Anki guid. |
+| 1 | guid | Keep existing. New notes get a new 10-character Anki guid. Must never start with `#` (Anki treats lines starting with `#` as comments and ignores them). |
 | 2 | notetype | `Farsi` |
 | 3 | deck | New notes use `Farsi`. Existing notes keep their deck. Never change a note's deck in the import file. |
 | 4 | Farsi Transliteration | Lowercase spelling key. See below. |
@@ -180,6 +180,27 @@ When a new note is added, also add colloquially used pieces that are not already
 - Keep both when the derived word is a new meaning, not the same idea in another part of speech. `ghahveh` is coffee and `ghahvei` is brown. `khaakestar` is ash and `khaakestari` is grey. `zendaan` is prison and `zendaani` is prisoner. Add the missing one. Do not rewrite the derived note into the base. A verb of the same idea and the same root is the verb-slot case above, not this one.
 
 Do not add a conjugated form of a verb the deck already has. `bardaar` (بردار) is `be-` plus the stem `daar` on `bar daashtan > daar`. `bogzaar` (بگذار) is `be-` plus `gozaar` on `gozaashtan > gozaar ~ zaar`; the spoken command is بذار from the stem `zaar` already on that note. Do not add a bound fragment nobody says alone.
+
+### Merging split verb and base notes (keeping review history)
+
+When a verb was previously added as its own standalone verb note and its base noun/adjective already exists as a separate note (such as `donbaal` and `donbaal kardan`), do **NOT** merge them by manually re-typing the verb into `farsi_import.txt` and deleting the old note. Deleting a note in Anki deletes its cards and completely destroys their review history (intervals, repetitions, lapses, and review logs).
+
+Instead, merge them programmatically so the existing verb cards are re-pointed to the base note's verb slot:
+1. Preview the planned merges (dry run):
+   ```powershell
+   python anki_unlock.py --merge-verbs
+   ```
+2. Apply the merge:
+   ```powershell
+   python anki_unlock.py --merge-verbs --apply
+   ```
+This invokes the `mergeRelatedVerbs` action in the `anki_unlock_reposition` add-on:
+- Re-points the existing verb cards (`card.nid = base_id`, `card.ord = slot_ord`) to the base note's verb slot templates.
+- Completely preserves the original card IDs, intervals, due dates, and review history (`revlog`).
+- Copies the verb fields and tags onto the base note.
+- Safely removes the obsolete standalone verb note and verifies that all card histories remained intact.
+
+*Note on function words vs. bases:* `anki_unlock.py` pairs verbs with bases tagged `Noun` or `adjective`. If a base word is tagged only as a function word (such as `preposition`), ensure it carries its content tag (e.g. `preposition Noun`, as with `donbaal`), so the merge script recognizes it as a valid base.
 
 ## What to fix
 

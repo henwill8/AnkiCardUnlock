@@ -136,8 +136,8 @@ Follow the note design rules in the `farsi-anki-notes` skill (`## Pieces of a ne
 Check `deck_index.txt` directly for the base word and its verb slots:
 
 1. **Card already exists:**
-   - **In `Farsi::Queue` (or unlearned):** Move it to the main `Farsi` deck so the user will learn it. Write or update the note in `farsi_import.txt` with deck set to `Farsi` (preserving guid, fields, and tags).
-   - **In `Farsi` (already learned or active):** No move needed.
+   - **Unlearned in `Farsi::Queue`:** Move it to the main `Farsi` deck so the user will learn it. Note that Anki's text import does not move existing cards between decks (the `#deck` column only applies to new notes). Move it in Anki Desktop (Browse → `Ctrl+D` → `Farsi`) or use AnkiConnect `changeDeck`.
+   - **Already learned (in `Farsi` or `Farsi::Queue`):** No deck move needed. If updating fields (e.g. adding compound verbs), keep its existing deck.
 2. **No note exists:**
    - Create a new note in `farsi_import.txt` following `farsi-anki-notes` specifications:
      - Header: `#separator:tab`, `#html:true`, `#guid column:1`, `#notetype column:2`, `#deck column:3`, `#tags column:8` (or `16` for verb slots).
