@@ -788,6 +788,59 @@ def sync_card_visibility(
             print(f"New queue repositioned: {moved}")
 
 
+def sync_import_decks(import_path: str | Path | None = None) -> int:
+    """Move non-script cards in Anki to match the deck specified in farsi_import.txt."""
+    path = Path(import_path) if import_path else ROOT / "farsi_import.txt"
+    if not path.is_file():
+        return 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return 0
+
+    rows: list[tuple[str, str, str]] = []
+    for line in lines:
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 4:
+            guid = parts[0].strip()
+            target_deck = parts[2].strip()
+            tr = parts[3].strip()
+            if target_deck in (VOCAB_DECK, f"{VOCAB_DECK}::Queue"):
+                rows.append((guid, target_deck, tr))
+
+    if not rows:
+        return 0
+
+    script_ords = _script_ords_by_model().get(VOCAB_MODEL, set())
+    moved_count = 0
+
+    for guid, target_deck, tr in rows:
+        clean_tr = tr.replace('"', "").strip()
+        found_nids = invoke("findNotes", query=f'note:"{VOCAB_MODEL}" "{clean_tr}"') or []
+        for nid in found_nids:
+            notes = invoke("notesInfo", notes=[nid]) or []
+            for note in notes:
+                fmap = field_map(note)
+                if fmap.get("Farsi Transliteration", "") != tr:
+                    continue
+                cards = invoke("cardsInfo", cards=note.get("cards") or []) or []
+                cids_to_move = []
+                for card in cards:
+                    ord_ = card.get("ord", 0)
+                    if ord_ in script_ords and fmap.get(SCRIPT_FIELD, "") == "1":
+                        continue
+                    if card.get("deckName") != target_deck:
+                        cids_to_move.append(card["cardId"])
+                if cids_to_move:
+                    invoke("changeDeck", cards=cids_to_move, deck=target_deck)
+                    moved_count += len(cids_to_move)
+                    print(f"Moved {len(cids_to_move)} card(s) for {tr!r} to {target_deck}")
+
+    return moved_count
+
+
 def ensure_field(model: str, field: str, existing: list[str] | None = None) -> list[str]:
     names = existing if existing is not None else invoke("modelFieldNames", modelName=model)
     if field not in names:
@@ -1351,6 +1404,7 @@ def unlock(
     suspend_only: bool = False,
 ) -> None:
     repair_desynced_cards()
+    sync_import_decks()
     if suspend_only:
         sync_card_visibility(invoke("modelNames"), unsuspend=False)
         print("Done.")
@@ -1938,7 +1992,17 @@ def main():
         action="store_true",
         help="Move verbs that are their own note into the verb slot. With --apply, keep their history",
     )
+    parser.add_argument(
+        "--sync-decks",
+        action="store_true",
+        help="Move cards in Anki to match the deck specified in farsi_import.txt",
+    )
     args = parser.parse_args()
+    if args.sync_decks:
+        moved = sync_import_decks()
+        if moved == 0:
+            print("All card decks are in sync with farsi_import.txt.")
+        return
     if args.merge_verbs:
         merge_related_verbs(apply=args.apply)
         return

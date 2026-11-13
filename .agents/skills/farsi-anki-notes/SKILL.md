@@ -29,7 +29,9 @@ Study and browse `Farsi`. `anki_unlock.py` searches `deck:"Farsi"`, which includ
 | Note | Deck |
 |------|------|
 | New vocab from this skill / import | `Farsi` |
-| Existing vocab being fixed | Keep that note's deck. Never move a note between `Farsi` and `Farsi::Queue`. |
+| Existing vocab being activated into study | Set `deck` to `Farsi`. |
+| Existing vocab being demoted to backlog | Set `deck` to `Farsi::Queue`. |
+| Existing vocab being fixed (no move intended) | Keep that note's current deck. |
 
 Script **cards** (not notes) on a note whose `ScriptUnlocked` is `1` are moved to `Farsi::Queue` at the card level via AnkiConnect `changeDeck`. The note itself stays in whatever deck it is in. See [Script card placement](#script-card-placement).
 
@@ -49,7 +51,7 @@ Guids are in the index files. Copy the guid already on that note. Do not invent 
 
 Do not write notes with `updateNoteFields` or `addNote`. Write an import file the user imports, so Anki's import screen shows every change. One notetype per file. Put vocab changes in `farsi_import.txt` in the repo. An existing note keeps its guid, so the import updates that note. A new note gets a new guid.
 
-Copy guid, deck, ScriptUnlocked, English, script, transliteration, and tags from the index (or Anki) unless that field is one you are fixing. Never set or clear ScriptUnlocked. Never change an existing note's deck.
+Copy guid, deck, ScriptUnlocked, English, script, transliteration, and tags from the index (or Anki) unless that field is one you are fixing or moving. Never set or clear ScriptUnlocked. When activating a note from the backlog into active study, set `deck` to `Farsi` (or `Farsi::Queue` if demoting). Note: Because Anki's native GUI text import only updates note fields and does not change existing card decks, `anki_unlock.py` automatically syncs card decks from `farsi_import.txt` via AnkiConnect `changeDeck` when run.
 
 ## Script card placement
 
@@ -100,7 +102,7 @@ Eight tab-separated fields when the note has no verb. Anki maps columns 4–7 on
 |---|-------|------|
 | 1 | guid | Keep existing. New notes get a new 10-character Anki guid. |
 | 2 | notetype | `Farsi` |
-| 3 | deck | New notes use `Farsi`. Existing notes keep their deck. Never change a note's deck in the import file. |
+| 3 | deck | Target deck for the note (`Farsi` for new notes and notes being activated into active study; `Farsi::Queue` for backlog; or keep existing deck if no move is intended). |
 | 4 | Farsi Transliteration | Lowercase spelling key. See below. |
 | 5 | English | Short gloss. Keep wording that is already right. |
 | 6 | Farsi Script | Normal Persian spelling, no vowel marks. |
@@ -192,7 +194,7 @@ On each bad note:
 3. Make the script match those spellings. Persian ی and ک, not Arabic ي and ك. No extra spaces.
 4. Fill tags from the inventory in [reference.md](reference.md). A light-verb compound is `Verb`.
 5. Keep the English gloss. Extend it only when a second form makes the old gloss wrong. First letter capital. Verbs start with `To `. No trailing space.
-6. Write an eight-field row when the note has no verb. A verb uses the sixteen-field row. Keep the base guid when the verb joins that note. A verb with no base keeps its own guid and is written into the main fields with tag `Verb` (to avoid Anki's empty-first-field error). Preserve deck and ScriptUnlocked. Do not move a note between `Farsi` and `Farsi::Queue`.
+6. Write an eight-field row when the note has no verb. A verb uses the sixteen-field row. Keep the base guid when the verb joins that note. A verb with no base keeps its own guid and is written into the main fields with tag `Verb` (to avoid Anki's empty-first-field error). Preserve ScriptUnlocked. Set `deck` to `Farsi` if activating the note from queue to active study (or `Farsi::Queue` if demoting), or keep the existing deck if no move is intended. Note: Because Anki's text import only updates note fields, run `python anki_unlock.py` (or `python anki_unlock.py --sync-decks`) after import to sync card decks via AnkiConnect `changeDeck`.
 
 Do not delete a note the deck already had. Delete only a newly added note whose meaning is already covered, as in [Same meaning](#same-meaning). Do not reorder existing notes. Do not change a gloss that is already accurate. Do not set `ScriptUnlocked`. Do not put example sentences on vocab notes.
 

@@ -140,11 +140,12 @@ Present the response clearly with the following sections:
    * List any notes added or moved from `Farsi::Queue` to `Farsi`, showing transliteration, English gloss, Persian script, verb slots, and tags.
 4. **Next Steps:**
    * Reminder to import `farsi_import.txt` into Anki.
+   * If any notes were moved between decks (e.g. from `Farsi::Queue` to `Farsi`), note that running `python anki_unlock.py` (or `python anki_unlock.py --sync-decks`) automatically moves their cards in Anki to match `farsi_import.txt`.
    * If any standalone verbs were added (verbs with no base noun), explicitly include the command:
      ```powershell
      python anki_unlock.py --verb-slots --apply
      ```
-   * Command to suspend locked cards:
+   * Command to unlock/suspend locked cards (which also automatically syncs card decks):
      ```powershell
      python anki_unlock.py --suspend-locked
      ```
