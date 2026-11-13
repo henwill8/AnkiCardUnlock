@@ -100,6 +100,8 @@ def lint(path: Path) -> list[str]:
             verb_tr = fields[7]
         if not guid:
             errors.append(f"{where}: guid empty")
+        elif guid.startswith("#"):
+            errors.append(f"{where}: guid starts with '#' (Anki skips lines starting with '#' as comments)")
         elif guid in seen_guid:
             errors.append(f"{where}: duplicate guid also on L{seen_guid[guid]}")
         else:
