@@ -1432,6 +1432,7 @@ def unlock(
         )
 
     print(f"ScriptUnlocked newly set: {script_on}")
+    flush_updates(updates)
 
     sync_card_visibility(models)
 
