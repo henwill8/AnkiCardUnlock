@@ -29,7 +29,9 @@ Study and browse `Farsi`. `anki_unlock.py` searches `deck:"Farsi"`, which includ
 | Note | Deck |
 |------|------|
 | New vocab from this skill / import | `Farsi` |
-| Existing vocab being fixed | Keep that note's deck. Never move a note between `Farsi` and `Farsi::Queue`. |
+| Existing vocab being activated into study | Set `deck` to `Farsi`. |
+| Existing vocab being demoted to backlog | Set `deck` to `Farsi::Queue`. |
+| Existing vocab being fixed (no move intended) | Keep that note's current deck. |
 
 Script **cards** (not notes) on a note whose `ScriptUnlocked` is `1` are moved to `Farsi::Queue` at the card level via AnkiConnect `changeDeck`. The note itself stays in whatever deck it is in. See [Script card placement](#script-card-placement).
 
